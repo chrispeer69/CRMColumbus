@@ -369,6 +369,22 @@ var CAT_LETTER={repair:"R",towing:"T",body:"B",other:"•"};
 var CAT_COLOR={repair:"#2FBF71",towing:"#4FC3F7",body:"#EF5350",other:"#B0BEC5"};
 var VISITED_COLOR="#F5E17A", FOLLOW_COLOR="#FFA726";
 var IOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+var MOBILE=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+// Set to the Blue Collar AI Gmail address to pin compose to that account
+var GMAIL_USER="";
+function gmailCompose(to,subject,body){
+  window.open("https://mail.google.com/mail/?view=cm&fs=1"
+    +(GMAIL_USER?"&authuser="+encodeURIComponent(GMAIL_USER):"")
+    +"&to="+encodeURIComponent(to||"")
+    +"&su="+encodeURIComponent(subject||"")
+    +"&body="+encodeURIComponent(body||""),"_blank");
+}
+function sendSms(num,body){
+  if(MOBILE){location.href="sms:"+(num||"")+(IOS?"&":"?")+"body="+encodeURIComponent(body);return;}
+  navigator.clipboard.writeText(body).then(
+    function(){toast("Message + link copied ✓ — paste anywhere. One-tap texting works on your phone.");},
+    function(){prompt("Copy this message:",body);});
+}
 
 var state={markets:[],market:localStorage.getItem("fcrm-market")||"columbus",businesses:[],docs:[]};
 var markers={}, repMarkers={}, currentId=null;
@@ -678,15 +694,13 @@ document.getElementById("sdText").onclick=function(){
   var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
   var b=getBiz(currentId)||{};
   var num=(b.phone||"").replace(/[^\d+]/g,"");
-  var body="Here's the "+d.title+" from our conversation: "+docLink(d);
-  location.href="sms:"+num+(IOS?"&":"?")+"body="+encodeURIComponent(body);
+  sendSms(num,"Here's the "+d.title+" from our conversation: "+docLink(d));
 };
 document.getElementById("sdEmail").onclick=function(){
   var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
   var b=getBiz(currentId)||{};
-  location.href="mailto:"+encodeURIComponent(b.email||"")
-    +"?subject="+encodeURIComponent(d.title)
-    +"&body="+encodeURIComponent("Hi"+(b.contact?" "+b.contact:"")+",\n\nGreat speaking with you. Here's the "+d.title+":\n"+docLink(d)+"\n\nThank you!");
+  gmailCompose(b.email||"",d.title,
+    "Hi"+(b.contact?" "+b.contact:"")+",\n\nGreat speaking with you. Here's the "+d.title+":\n"+docLink(d)+"\n\nThank you!");
 };
 document.getElementById("sdCopy").onclick=function(){
   var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
@@ -716,9 +730,9 @@ function renderDocs(){
 }
 function docById(id){return state.docs.find(function(d){return d.id===id;});}
 window.__docText=function(id){var d=docById(id);if(!d)return;
-  location.href="sms:"+(IOS?"&":"?")+"body="+encodeURIComponent("Here's the "+d.title+": "+docLink(d));};
+  sendSms("","Here's the "+d.title+": "+docLink(d));};
 window.__docEmail=function(id){var d=docById(id);if(!d)return;
-  location.href="mailto:?subject="+encodeURIComponent(d.title)+"&body="+encodeURIComponent("Here's the "+d.title+":\n"+docLink(d));};
+  gmailCompose("",d.title,"Here's the "+d.title+":\n"+docLink(d));};
 window.__docCopy=function(id){var d=docById(id);if(!d)return;
   navigator.clipboard.writeText(docLink(d)).then(function(){toast("Link copied");},function(){prompt("Copy this link:",docLink(d));});};
 window.__docDel=async function(id){var d=docById(id);if(!d)return;

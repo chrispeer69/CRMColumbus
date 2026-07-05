@@ -286,9 +286,13 @@ app.get('/api/position', requireAuth, async (req, res, next) => {
 /* ---------- static ---------- */
 app.get('/', (req, res) => {
   if (!authed(req)) return res.redirect('/login.html');
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
+  setHeaders: (res, p) => { if (p.endsWith('.html')) res.set('Cache-Control', 'no-cache'); },
+}));
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 app.use((err, req, res, next) => {
