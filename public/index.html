@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#10151b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Field CRM</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --ink:#10151b; --panel:#1a212a; --panel2:#232d38; --line:#31404f;
+    --text:#eaf0f5; --muted:#93a5b5;
+    --towing:#4FC3F7; --body:#EF5350; --repair:#2FBF71; --other:#B0BEC5;
+    --visited:#F5E17A; --follow:#FFA726;
+    --accent:#4FC3F7;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--ink);color:var(--text);display:flex;flex-direction:column;overflow:hidden;font-size:15px}
+
+  header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header h1{font-size:14px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-right:2px}
+  header h1 span{color:var(--accent)}
+  .spacer{flex:1}
+  select.mkt{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:8px;font-size:13px;font-weight:700;max-width:170px;min-height:40px}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;min-height:40px}
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#0d1319}
+  .btn.danger{border-color:#EF5350;color:#EF5350}
+  .btn.small{padding:6px 10px;min-height:34px;font-size:12px}
+  .toggle{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .toggle button{background:transparent;border:0;color:var(--muted);padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer;min-height:40px}
+  .toggle button.on{background:var(--accent);color:#0d1319}
+
+  .legend{display:flex;gap:10px;padding:5px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);flex-wrap:wrap;align-items:center}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:3px;vertical-align:-1px}
+  .counts{margin-left:auto;font-size:11px;color:var(--muted)}
+  .counts b{color:var(--text)}
+
+  main{flex:1;position:relative;overflow:hidden}
+  #map{position:absolute;inset:0;background:#0c1116}
+  #map.placing{cursor:crosshair}
+  #placeBanner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:950;background:var(--follow);color:#0d1319;font-weight:800;font-size:13px;padding:9px 16px;border-radius:10px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+
+  .fab{position:absolute;z-index:900;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:12px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  #btnLocate{bottom:88px;right:12px;width:48px;height:48px;font-size:21px}
+  #btnLocate.on{background:var(--accent);color:#0d1319;border-color:var(--accent)}
+  #btnNear{bottom:32px;right:12px;height:48px;padding:0 16px;font-size:14px}
+
+  #nearSheet{position:absolute;left:0;right:0;bottom:0;max-height:55%;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;z-index:1000;transform:translateY(110%);transition:transform .22s ease;display:flex;flex-direction:column}
+  #nearSheet.open{transform:translateY(0)}
+  #nearSheet .nh{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:800;font-size:14px}
+  #nearSheet .nh button{margin-left:auto;background:none;border:0;color:var(--muted);font-size:22px;cursor:pointer}
+  #nearList{overflow-y:auto;padding:8px 10px}
+  .nearItem{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:7px;cursor:pointer}
+  .nearItem .pin{width:13px;height:13px;border-radius:50%;flex-shrink:0}
+  .nearItem .nb{flex:1;min-width:0}
+  .nearItem .nn{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nearItem .na{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nearItem .nd{font-weight:800;font-size:13px;color:var(--accent);flex-shrink:0}
+
+  .view{position:absolute;inset:0;background:var(--ink);overflow-y:auto;display:none;padding:10px;-webkit-overflow-scrolling:touch}
+  .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+  .filters select,.filters input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px 10px;font-size:14px;min-height:42px}
+  .filters input{flex:1 1 100%;min-width:0}
+  .filters select{flex:1}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer;display:flex;gap:11px;align-items:flex-start}
+  .card .pin{width:14px;height:14px;border-radius:50%;margin-top:4px;flex-shrink:0}
+  .card .body{flex:1;min-width:0}
+  .card .name{font-weight:700;font-size:14px}
+  .card .meta{font-size:12px;color:var(--muted);margin-top:2px}
+  .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+  .tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  .tag.yes{color:#5fdc96;border-color:#5fdc96}
+  .tag.no{color:#f38d80;border-color:#f38d80}
+  .tag.due{color:var(--follow);border-color:var(--follow)}
+  .tag.cat-towing{color:var(--towing);border-color:var(--towing)}
+  .tag.cat-body{color:var(--body);border-color:var(--body)}
+  .tag.cat-repair{color:var(--repair);border-color:var(--repair)}
+  .tag.cat-other{color:var(--other);border-color:var(--other)}
+
+  .leaflet-popup-content-wrapper{background:var(--panel);color:var(--text);border-radius:11px;border:1px solid var(--line)}
+  .leaflet-popup-tip{background:var(--panel)}
+  .leaflet-popup-content{margin:12px 13px;font-size:13px;min-width:220px}
+  .pp-name{font-weight:800;font-size:14px;margin-bottom:2px}
+  .pp-meta{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .pp-row{display:flex;gap:6px;margin-top:9px}
+  .pp-row .btn{flex:1;text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center}
+  a.phone{color:var(--accent);text-decoration:none;font-weight:700}
+
+  #drawer{position:absolute;z-index:1200;background:var(--panel);display:flex;flex-direction:column;
+    left:0;right:0;bottom:0;top:8%;border-top:1px solid var(--line);border-radius:16px 16px 0 0;
+    transform:translateY(110%);transition:transform .24s ease}
+  #drawer.open{transform:translateY(0)}
+  @media (min-width:760px){
+    #drawer{left:auto;top:0;bottom:0;width:430px;border-radius:0;border-left:1px solid var(--line);transform:translateX(105%)}
+    #drawer.open{transform:translateX(0)}
+  }
+  .dr-head{padding:13px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+  .dr-head .pin{width:14px;height:14px;border-radius:50%;margin-top:5px;flex-shrink:0}
+  .dr-head h2{font-size:16px;flex:1;line-height:1.25}
+  .dr-head .x{background:none;border:0;color:var(--muted);font-size:26px;cursor:pointer;line-height:1;padding:0 4px}
+  .dr-body{flex:1;overflow-y:auto;padding:14px;-webkit-overflow-scrolling:touch}
+  .fld{margin-bottom:10px}
+  .fld label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px}
+  .fld input,.fld textarea,.fld select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:11px;font-size:16px}
+  .fld textarea{resize:vertical;min-height:60px}
+  .frow{display:flex;gap:8px}
+  .frow .fld{flex:1;min-width:0}
+  .dr-sec{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--accent);margin:16px 0 8px;border-top:1px solid var(--line);padding-top:14px;font-weight:800}
+  .chkrow{display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap}
+  .chkrow label{display:flex;align-items:center;gap:7px;font-size:15px;cursor:pointer;min-height:32px}
+  .chkrow input{width:21px;height:21px;accent-color:var(--accent)}
+  .visit{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px;margin-bottom:8px;font-size:13px}
+  .visit .vd{font-weight:800}
+  .visit .vn{color:var(--muted);margin-top:5px;white-space:pre-wrap}
+  .save-note{font-size:12px;color:#5fdc96;height:14px;margin-top:5px}
+
+  /* docs */
+  .doc{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 13px;margin-bottom:8px}
+  .doc .dn{font-weight:700;font-size:14px}
+  .doc .dm{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .doc .dbtns{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+  .upl{background:var(--panel);border:1px dashed var(--line);border-radius:11px;padding:14px;margin-bottom:12px;text-align:center}
+  .upl input[type=file]{display:none}
+  .upl .uttl{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px;font-size:15px;width:100%;margin-top:10px;display:none}
+
+  .mwrap{position:absolute;inset:0;background:rgba(6,10,14,.75);z-index:1500;display:none;align-items:center;justify-content:center;padding:14px}
+  .mwrap.open{display:flex}
+  .mbox{background:var(--panel);border:1px solid var(--line);border-radius:13px;width:640px;max-width:100%;max-height:92%;display:flex;flex-direction:column}
+  .mbox h3{padding:14px;border-bottom:1px solid var(--line);font-size:15px}
+  .mbox .mb{padding:14px;overflow-y:auto}
+  .mbox textarea{width:100%;min-height:180px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .mbox .mf{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+  .hint{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:11px}
+
+  .toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent);color:var(--text);padding:11px 18px;border-radius:11px;font-size:13px;z-index:2000;display:none;max-width:92%;text-align:center}
+
+  .userdot{width:18px;height:18px;border-radius:50%;background:#2f7bff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,123,255,.28)}
+  .repdot{width:16px;height:16px;border-radius:50%;background:#2FBF71;border:3px solid #fff;box-shadow:0 0 0 5px rgba(47,191,113,.3)}
+  .replbl{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800;color:var(--text);white-space:nowrap}
+  @media (max-width:640px){ header h1{display:none} }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Field <span>CRM</span></h1>
+  <select class="mkt" id="mktSel" title="Market"></select>
+  <button class="btn small" id="btnAddCity" title="Add a city">＋ City</button>
+  <div class="spacer"></div>
+  <div class="toggle">
+    <button id="tabMap" class="on">Map</button>
+    <button id="tabList">List</button>
+    <button id="tabAdd">＋ Shop</button>
+    <button id="tabDocs">Docs</button>
+  </div>
+  <button class="btn small" id="btnExportMenu">Export ▾</button>
+  <button class="btn small" id="btnImport">Import</button>
+  <button class="btn small" id="btnLogout" title="Sign out">⎋</button>
+</header>
+
+<div class="legend">
+  <span><i class="dot" style="background:var(--repair)"></i>Repair</span>
+  <span><i class="dot" style="background:var(--towing)"></i>Towing</span>
+  <span><i class="dot" style="background:var(--body)"></i>Body</span>
+  <span><i class="dot" style="background:var(--visited)"></i>Visited</span>
+  <span><i class="dot" style="background:var(--follow)"></i>Follow-up due</span>
+  <span class="counts" id="counts"></span>
+</div>
+
+<main>
+  <div id="map"></div>
+  <div id="placeBanner">Tap the map to place the new shop</div>
+
+  <button class="fab" id="btnLocate" title="Track my location">⌖</button>
+  <button class="fab" id="btnNear">Near Me</button>
+
+  <div id="nearSheet">
+    <div class="nh">Closest unvisited stops <button id="nearClose">×</button></div>
+    <div id="nearList"></div>
+  </div>
+
+  <div class="view" id="listView">
+    <div class="filters">
+      <input id="fSearch" placeholder="Search name / address / phone…">
+      <select id="fStatus">
+        <option value="">All statuses</option>
+        <option value="not_visited">Not visited</option>
+        <option value="visited">Visited</option>
+        <option value="followup">Follow-up due</option>
+        <option value="met">Met owner</option>
+        <option value="no_meet">Visited, no meet</option>
+        <option value="sale">Sale closed</option>
+        <option value="no_sale">Visited, no sale</option>
+      </select>
+      <select id="fCat">
+        <option value="">All categories</option>
+        <option value="repair">Auto repair</option>
+        <option value="towing">Towing</option>
+        <option value="body">Body shop</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div id="listItems"></div>
+  </div>
+
+  <div class="view" id="addView">
+    <div class="hint" style="margin-bottom:12px">Found a shop in the field? Add it here — it saves to the shared database instantly.</div>
+    <div class="fld"><label>Business name *</label><input id="aName"></div>
+    <div class="frow">
+      <div class="fld"><label>Category</label>
+        <select id="aCat">
+          <option value="repair">Auto repair</option>
+          <option value="towing">Towing</option>
+          <option value="body">Body shop</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="fld"><label>ZIP</label><input id="aZip" inputmode="numeric"></div>
+    </div>
+    <div class="fld"><label>Street address</label><input id="aAddr" placeholder="123 Main St, City, ST 43215"></div>
+    <div class="frow">
+      <div class="fld"><label>Phone</label><input id="aPhone" inputmode="tel"></div>
+      <div class="fld"><label>Email</label><input id="aEmail" type="email"></div>
+    </div>
+    <div class="fld"><label>Website</label><input id="aWeb" placeholder="https://…"></div>
+    <div class="fld"><label>Point of contact</label><input id="aContact" placeholder="Owner / manager name"></div>
+    <div class="fld"><label>Notes</label><textarea id="aNotes"></textarea></div>
+    <div class="dr-sec" style="border:0;padding-top:2px">Location on map</div>
+    <div class="frow" style="margin-bottom:10px">
+      <button class="btn" style="flex:1" id="aGps">📍 My GPS</button>
+      <button class="btn" style="flex:1" id="aPick">🗺 Tap map</button>
+      <button class="btn" style="flex:1" id="aGeo">🔎 Address</button>
+    </div>
+    <div class="hint" id="aLoc">No location set yet — use one of the buttons above.</div>
+    <button class="btn primary" id="aSave" style="width:100%;margin-top:6px">Save shop</button>
+    <div style="height:30px"></div>
+  </div>
+
+  <div class="view" id="docsView">
+    <label class="upl" id="uplBox">
+      <div style="font-size:14px;font-weight:700">📄 Upload a sales document or contract</div>
+      <div class="hint" style="margin-top:4px">PDF, Word, images — up to 20 MB. Tap here to choose a file.</div>
+      <input type="file" id="uplFile">
+      <input class="uttl" id="uplTitle" placeholder="Display name (e.g. Service Agreement)">
+    </label>
+    <button class="btn primary" id="uplGo" style="width:100%;display:none;margin-bottom:12px">Upload</button>
+    <div id="docList"></div>
+    <div style="height:30px"></div>
+  </div>
+
+  <aside id="drawer">
+    <div class="dr-head">
+      <span class="pin" id="drPin"></span>
+      <h2 id="drName"></h2>
+      <button class="x" id="drClose">×</button>
+    </div>
+    <div class="dr-body">
+      <div class="pp-meta" id="drMeta"></div>
+      <div class="pp-row" style="margin-bottom:14px">
+        <a class="btn primary" id="drNav" target="_blank" rel="noopener">Navigate ▸</a>
+        <a class="btn" id="drCall">Call</a>
+      </div>
+
+      <div class="dr-sec" style="border:0;padding-top:0">Send a document</div>
+      <div class="fld"><select id="sdDoc"></select></div>
+      <div class="pp-row" style="margin-bottom:4px">
+        <button class="btn" id="sdText">📱 Text it</button>
+        <button class="btn" id="sdEmail">✉️ Email it</button>
+        <button class="btn" id="sdCopy">🔗 Copy link</button>
+      </div>
+
+      <div class="dr-sec">Business details</div>
+      <div class="fld"><label>Business name</label><input id="drBizName"></div>
+      <div class="frow">
+        <div class="fld"><label>Category</label>
+          <select id="drCat">
+            <option value="repair">Auto repair</option>
+            <option value="towing">Towing</option>
+            <option value="body">Body shop</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="fld"><label>ZIP</label><input id="drZip"></div>
+      </div>
+      <div class="fld"><label>Address</label><input id="drAddr"></div>
+      <div class="frow">
+        <div class="fld"><label>Phone</label><input id="drPhone" inputmode="tel"></div>
+        <div class="fld"><label>Email</label><input id="drEmail" type="email"></div>
+      </div>
+      <div class="fld"><label>Website</label><input id="drWeb"></div>
+      <div class="fld"><label>Point of contact</label><input id="drContact" placeholder="Owner / manager name"></div>
+      <div class="fld"><label>Notes</label><textarea id="drNotes" placeholder="Anything worth remembering"></textarea></div>
+      <button class="btn small" id="drSave">Save details</button>
+      <div class="save-note" id="drSaved"></div>
+
+      <div class="dr-sec">Log a visit</div>
+      <div class="fld"><label>Date &amp; time</label><input id="vWhen" type="datetime-local"></div>
+      <div class="chkrow">
+        <label><input type="checkbox" id="vMaterials"> Dropped materials</label>
+        <label><input type="checkbox" id="vMet"> Met owner</label>
+        <label><input type="checkbox" id="vSale"> Closed sale</label>
+      </div>
+      <div class="fld"><label>Follow up on (optional)</label><input id="vFollow" type="date"></div>
+      <div class="fld"><label>Visit notes</label><textarea id="vNotes" placeholder="What happened"></textarea></div>
+      <button class="btn primary" id="vLog" style="width:100%">Log visit</button>
+
+      <div class="dr-sec">Visit history</div>
+      <div id="drHistory"></div>
+
+      <div class="dr-sec" style="color:#EF5350">Danger zone</div>
+      <button class="btn danger small" id="drDelete">Delete this shop</button>
+      <div style="height:24px"></div>
+    </div>
+  </aside>
+
+  <div class="mwrap" id="modal">
+    <div class="mbox">
+      <h3 id="mTitle">Import businesses (JSON)</h3>
+      <div class="mb">
+        <div class="hint">
+          Paste a JSON array — imports into the <b id="mMarket"></b> market. Required per record: <code>name</code>. Recommended: <code>address</code>, <code>lat</code>, <code>lng</code>, <code>category</code> (<code>repair</code>|<code>towing</code>|<code>body</code>|<code>other</code>). Optional: <code>phone</code>, <code>zip</code>, <code>email</code>, <code>web</code>, <code>contact</code>. Duplicates (same name + address) are skipped.
+        </div>
+        <textarea id="importText"></textarea>
+        <div class="hint" id="importErr" style="color:#f38d80;margin-top:6px"></div>
+      </div>
+      <div class="mf">
+        <button class="btn" id="mCancel">Cancel</button>
+        <button class="btn danger" id="mReplace">Replace market</button>
+        <button class="btn primary" id="mAppend">Add to map</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mwrap" id="exportModal">
+    <div class="mbox" style="width:420px">
+      <h3>Export</h3>
+      <div class="mb">
+        <button class="btn primary" id="expFull" style="width:100%;margin-bottom:8px">Full database → GoHighLevel CSV</button>
+        <button class="btn" id="expToday" style="width:100%;margin-bottom:8px">Today's visit notes → CSV</button>
+        <div class="hint">Exports cover the current market. Full export includes contacts, statuses, and complete visit history. Today's notes exports visits logged today — run it at end of day.</div>
+      </div>
+      <div class="mf"><button class="btn" id="expCancel">Close</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</main>
+
+<script>
+(function(){
+"use strict";
+var CAT_LABEL={repair:"Auto repair",towing:"Towing",body:"Body shop",other:"Other"};
+var CAT_LETTER={repair:"R",towing:"T",body:"B",other:"•"};
+var CAT_COLOR={repair:"#2FBF71",towing:"#4FC3F7",body:"#EF5350",other:"#B0BEC5"};
+var VISITED_COLOR="#F5E17A", FOLLOW_COLOR="#FFA726";
+var IOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+
+var state={markets:[],market:localStorage.getItem("fcrm-market")||"columbus",businesses:[],docs:[]};
+var markers={}, repMarkers={}, currentId=null;
+var userMarker=null, watchId=null, lastPos=null, lastPosPush=0;
+var placing=false, addLatLng=null, addPreview=null;
+var DEVICE=localStorage.getItem("fcrm-device")||("dev_"+Math.random().toString(36).slice(2,10));
+localStorage.setItem("fcrm-device",DEVICE);
+
+/* ---------- api ---------- */
+async function api(url,opts){
+  opts=opts||{};
+  if(opts.body && typeof opts.body!=="string") opts.body=JSON.stringify(opts.body);
+  opts.headers=Object.assign({"Content-Type":"application/json"},opts.headers||{});
+  var r=await fetch(url,opts);
+  if(r.status===401){location.href="/login.html";throw new Error("unauthorized");}
+  if(!r.ok){var t;try{t=(await r.json()).error;}catch(e){} throw new Error(t||("HTTP "+r.status));}
+  return r.json();
+}
+function guard(p,msg){return p.catch(function(e){toast((msg||"Error")+": "+e.message);throw e;});}
+
+/* ---------- status ---------- */
+function flags(b){
+  var v=b.visits.length>0;
+  var latest=v? b.visits[b.visits.length-1] : null;
+  var due=latest && latest.follow_up && latest.follow_up<=today();
+  return {visited:v, met:b.visits.some(function(x){return x.met;}), sale:b.visits.some(function(x){return x.sale;}), due:!!due};
+}
+function pinColor(b){var f=flags(b);return f.due?FOLLOW_COLOR : f.visited?VISITED_COLOR : (CAT_COLOR[b.category]||CAT_COLOR.other);}
+
+/* ---------- map ---------- */
+var map=L.map("map",{zoomControl:false}).setView([39.9829,-82.9855],11);
+L.control.zoom({position:'topleft'}).addTo(map);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
+
+function makeIcon(b){
+  var c=pinColor(b);
+  var ring=flags(b).sale?'box-shadow:0 0 0 3px #2FBF71,0 1px 4px rgba(0,0,0,.6);':'box-shadow:0 1px 4px rgba(0,0,0,.6);';
+  return L.divIcon({className:"",
+    html:'<div style="width:27px;height:27px;border-radius:50%;background:'+c+';border:2px solid #0c1116;'+ring+'display:flex;align-items:center;justify-content:center;font:800 12px sans-serif;color:#10151b">'+(CAT_LETTER[b.category]||"•")+'</div>',
+    iconSize:[27,27],iconAnchor:[13,13],popupAnchor:[0,-15]});
+}
+function gmaps(b){
+  var dest=b.address? b.address : (b.lat+","+b.lng);
+  return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest);
+}
+function popupHtml(b){
+  var f=flags(b);
+  var st=f.due?"Follow-up due" : f.visited?("Visited"+(f.sale?" · Sale ✓":f.met?" · Met owner":"")) : "Not visited";
+  return '<div class="pp-name">'+esc(b.name)+'</div>'
+    +'<div class="pp-meta">'+esc(CAT_LABEL[b.category]||b.category)+' · '+st+'<br>'+esc(b.address)+'</div>'
+    +(b.phone?'<a class="phone" href="tel:'+esc(b.phone.replace(/[^\d+]/g,""))+'">'+esc(b.phone)+'</a>':'')
+    +'<div class="pp-row">'
+    +'<a class="btn small" href="'+gmaps(b)+'" target="_blank" rel="noopener">Navigate</a>'
+    +'<button class="btn small primary" onclick="window.__open('+b.id+')">Details / Log visit</button>'
+    +'</div>';
+}
+function renderMarkers(){
+  Object.keys(markers).forEach(function(id){map.removeLayer(markers[id]);});
+  markers={};
+  state.businesses.forEach(function(b){
+    if(b.lat==null||b.lng==null)return;
+    var m=L.marker([b.lat,b.lng],{icon:makeIcon(b)}).addTo(map);
+    m.bindPopup(popupHtml(b));
+    markers[b.id]=m;
+  });
+  renderCounts();
+}
+function refreshMarker(b){
+  var m=markers[b.id];
+  if(m){
+    if(b.lat!=null&&b.lng!=null){m.setLatLng([b.lat,b.lng]);m.setIcon(makeIcon(b));m.setPopupContent(popupHtml(b));}
+    else {map.removeLayer(m);delete markers[b.id];}
+  } else if(b.lat!=null&&b.lng!=null){
+    m=L.marker([b.lat,b.lng],{icon:makeIcon(b)}).addTo(map);
+    m.bindPopup(popupHtml(b));markers[b.id]=m;
+  }
+  renderCounts();
+}
+function renderCounts(){
+  var t=state.businesses.length,v=0,s=0,d=0;
+  state.businesses.forEach(function(b){var f=flags(b);if(f.visited)v++;if(f.sale)s++;if(f.due)d++;});
+  document.getElementById("counts").innerHTML='<b>'+v+'</b>/'+t+' visited · <b>'+s+'</b> sales'+(d?' · <b style="color:var(--follow)">'+d+'</b> follow-ups':'');
+}
+
+/* ---------- markets ---------- */
+function mktById(slug){return state.markets.find(function(m){return m.slug===slug;});}
+async function loadMarkets(){
+  state.markets=await api("/api/markets");
+  if(!mktById(state.market)) state.market=state.markets.length?state.markets[0].slug:"columbus";
+  var sel=document.getElementById("mktSel");
+  sel.innerHTML=state.markets.map(function(m){
+    return '<option value="'+esc(m.slug)+'"'+(m.slug===state.market?" selected":"")+'>'+esc(m.name)+' ('+m.shop_count+')</option>';
+  }).join("");
+}
+document.getElementById("mktSel").addEventListener("change",function(){
+  state.market=this.value;
+  localStorage.setItem("fcrm-market",state.market);
+  var m=mktById(state.market);
+  if(m)map.setView([m.center_lat,m.center_lng],m.zoom);
+  guard(loadShops(),"Load failed");
+});
+document.getElementById("btnAddCity").onclick=async function(){
+  var name=prompt('New city — e.g. "Cleveland, OH"'); if(!name)return;
+  toast("Looking up "+name+"…");
+  try{
+    var r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q="+encodeURIComponent(name));
+    var j=await r.json();
+    if(!j.length){toast("Couldn't find that city");return;}
+    var slug=name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    await guard(api("/api/markets",{method:"POST",body:{slug:slug,name:name,center_lat:+j[0].lat,center_lng:+j[0].lon,zoom:11}}),"Add city failed");
+    state.market=slug; localStorage.setItem("fcrm-market",slug);
+    await loadMarkets(); await loadShops();
+    map.setView([+j[0].lat,+j[0].lon],11);
+    toast(name+" added — import or add shops to get started");
+  }catch(e){}
+};
+
+/* ---------- shops ---------- */
+async function loadShops(){
+  state.businesses=await api("/api/shops?market="+encodeURIComponent(state.market));
+  renderMarkers();renderList();fillDocSelect();
+}
+
+/* ---------- GPS + live position ---------- */
+document.getElementById("btnLocate").onclick=function(){
+  if(watchId!==null){ stopWatch(); return; }
+  if(!navigator.geolocation){ toast("GPS not available in this browser"); return; }
+  this.classList.add("on"); this.textContent="◉";
+  watchId=navigator.geolocation.watchPosition(function(p){
+    lastPos=[p.coords.latitude,p.coords.longitude];
+    if(!userMarker){
+      userMarker=L.marker(lastPos,{icon:L.divIcon({className:"",html:'<div class="userdot"></div>',iconSize:[18,18],iconAnchor:[9,9]}),zIndexOffset:1000}).addTo(map);
+      map.setView(lastPos,13);
+    } else userMarker.setLatLng(lastPos);
+    var now=Date.now();
+    if(now-lastPosPush>20000){
+      lastPosPush=now;
+      api("/api/position",{method:"POST",body:{device:DEVICE,label:"Rep",lat:lastPos[0],lng:lastPos[1],accuracy:p.coords.accuracy}}).catch(function(){});
+    }
+  },function(err){
+    toast("Location error: "+err.message+". Check location permission.");
+    stopWatch();
+  },{enableHighAccuracy:true,maximumAge:15000,timeout:20000});
+  toast("Tracking your location — sharing with the team map");
+};
+function stopWatch(){
+  if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+  var b=document.getElementById("btnLocate");
+  b.classList.remove("on"); b.textContent="⌖";
+}
+async function pollPositions(){
+  try{
+    var rows=await api("/api/position");
+    rows.forEach(function(r){
+      if(r.device===DEVICE)return;
+      if(repMarkers[r.device]){repMarkers[r.device].setLatLng([r.lat,r.lng]);}
+      else{
+        repMarkers[r.device]=L.marker([r.lat,r.lng],{icon:L.divIcon({className:"",
+          html:'<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="repdot"></div><div class="replbl">'+esc(r.label||"Rep")+'</div></div>',
+          iconSize:[60,34],iconAnchor:[30,8]}),zIndexOffset:900}).addTo(map);
+      }
+    });
+  }catch(e){}
+}
+setInterval(pollPositions,60000);
+
+function distMi(a,b){
+  var R=3958.8,dLat=(b[0]-a[0])*Math.PI/180,dLng=(b[1]-a[1])*Math.PI/180;
+  var x=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+document.getElementById("btnNear").onclick=function(){
+  if(!lastPos){
+    if(!navigator.geolocation){toast("GPS not available");return;}
+    toast("Getting your location…");
+    navigator.geolocation.getCurrentPosition(function(p){
+      lastPos=[p.coords.latitude,p.coords.longitude]; showNear();
+    },function(e){toast("Location error: "+e.message);},{enableHighAccuracy:true,timeout:15000});
+    return;
+  }
+  showNear();
+};
+function showNear(){
+  var items=state.businesses.filter(function(b){return !flags(b).visited && b.lat!=null;})
+    .map(function(b){return {b:b,d:distMi(lastPos,[b.lat,b.lng])};})
+    .sort(function(a,c){return a.d-c.d;}).slice(0,8);
+  var el=document.getElementById("nearList");
+  el.innerHTML=items.length? items.map(function(x){
+    return '<div class="nearItem" onclick="window.__near('+x.b.id+')">'
+      +'<span class="pin" style="background:'+pinColor(x.b)+'"></span>'
+      +'<div class="nb"><div class="nn">'+esc(x.b.name)+'</div><div class="na">'+esc(x.b.address)+'</div></div>'
+      +'<span class="nd">'+x.d.toFixed(1)+' mi</span></div>';
+  }).join("") : '<div class="hint" style="padding:10px">Everything nearby is visited. Nice work.</div>';
+  document.getElementById("nearSheet").classList.add("open");
+}
+window.__near=function(id){
+  document.getElementById("nearSheet").classList.remove("open");
+  var b=getBiz(id); if(!b)return;
+  setTab("map");
+  map.setView([b.lat,b.lng],15);
+  if(markers[id]) markers[id].openPopup();
+};
+document.getElementById("nearClose").onclick=function(){document.getElementById("nearSheet").classList.remove("open");};
+
+/* ---------- drawer ---------- */
+window.__open=openDrawer;
+function openDrawer(id){
+  currentId=id;
+  var b=getBiz(id); if(!b)return;
+  document.getElementById("drPin").style.background=pinColor(b);
+  document.getElementById("drName").textContent=b.name;
+  document.getElementById("drMeta").innerHTML=esc(CAT_LABEL[b.category]||b.category)+' · '+esc(b.address)+(b.phone?'<br>'+esc(b.phone):'');
+  document.getElementById("drNav").href=gmaps(b);
+  var call=document.getElementById("drCall");
+  if(b.phone){call.style.display="flex";call.href="tel:"+b.phone.replace(/[^\d+]/g,"");}else call.style.display="none";
+  document.getElementById("drBizName").value=b.name||"";
+  document.getElementById("drCat").value=b.category||"other";
+  document.getElementById("drZip").value=b.zip||"";
+  document.getElementById("drAddr").value=b.address||"";
+  document.getElementById("drPhone").value=b.phone||"";
+  document.getElementById("drEmail").value=b.email||"";
+  document.getElementById("drWeb").value=b.web||"";
+  document.getElementById("drContact").value=b.contact||"";
+  document.getElementById("drNotes").value=b.notes||"";
+  document.getElementById("drSaved").textContent="";
+  document.getElementById("vWhen").value=localNow();
+  ["vMaterials","vMet","vSale"].forEach(function(i){document.getElementById(i).checked=false;});
+  document.getElementById("vFollow").value="";
+  document.getElementById("vNotes").value="";
+  renderHistory(b);
+  document.getElementById("drawer").classList.add("open");
+}
+function renderHistory(b){
+  var h=document.getElementById("drHistory");
+  if(!b.visits.length){h.innerHTML='<div class="hint">No visits logged yet.</div>';return;}
+  h.innerHTML=b.visits.slice().sort(function(a,c){return c.when.localeCompare(a.when);}).map(function(v){
+    return '<div class="visit"><div class="vd">'+fmtWhen(v.when)+'</div><div class="tags">'
+      +(v.materials?'<span class="tag yes">Materials dropped</span>':'')
+      +'<span class="tag '+(v.met?'yes':'no')+'">'+(v.met?'Met owner':'No meet')+'</span>'
+      +'<span class="tag '+(v.sale?'yes':'no')+'">'+(v.sale?'Sale':'No sale')+'</span>'
+      +(v.follow_up?'<span class="tag due">Follow up '+esc(v.follow_up)+'</span>':'')+'</div>'
+      +(v.notes?'<div class="vn">'+esc(v.notes)+'</div>':'')+'</div>';
+  }).join("");
+}
+document.getElementById("drClose").onclick=function(){document.getElementById("drawer").classList.remove("open");};
+document.getElementById("drSave").onclick=async function(){
+  var b=getBiz(currentId);if(!b)return;
+  var upd={name:document.getElementById("drBizName").value.trim()||b.name,
+    category:document.getElementById("drCat").value,
+    zip:document.getElementById("drZip").value.trim(),
+    address:document.getElementById("drAddr").value.trim(),
+    phone:document.getElementById("drPhone").value.trim(),
+    email:document.getElementById("drEmail").value.trim(),
+    web:document.getElementById("drWeb").value.trim(),
+    contact:document.getElementById("drContact").value.trim(),
+    notes:document.getElementById("drNotes").value.trim(),
+    lat:b.lat,lng:b.lng};
+  var saved=await guard(api("/api/shops/"+b.id,{method:"PUT",body:upd}),"Save failed");
+  Object.assign(b,saved);
+  refreshMarker(b);renderList();
+  document.getElementById("drName").textContent=b.name;
+  document.getElementById("drSaved").textContent="Saved ✓";
+  setTimeout(function(){document.getElementById("drSaved").textContent="";},1800);
+};
+document.getElementById("vLog").onclick=async function(){
+  var b=getBiz(currentId);if(!b)return;
+  var v=await guard(api("/api/shops/"+b.id+"/visits",{method:"POST",body:{
+    when:document.getElementById("vWhen").value||localNow(),
+    materials:document.getElementById("vMaterials").checked,
+    met:document.getElementById("vMet").checked,
+    sale:document.getElementById("vSale").checked,
+    follow_up:document.getElementById("vFollow").value||null,
+    notes:document.getElementById("vNotes").value.trim()}}),"Log failed");
+  b.visits.push(v);
+  b.visits.sort(function(a,c){return a.when.localeCompare(c.when);});
+  refreshMarker(b);renderHistory(b);renderList();
+  document.getElementById("drPin").style.background=pinColor(b);
+  ["vMaterials","vMet","vSale"].forEach(function(i){document.getElementById(i).checked=false;});
+  document.getElementById("vFollow").value="";
+  document.getElementById("vNotes").value="";
+  toast("Visit logged ✓");
+};
+document.getElementById("drDelete").onclick=async function(){
+  var b=getBiz(currentId);if(!b)return;
+  if(!confirm('Delete "'+b.name+'" and its entire visit history? This cannot be undone.'))return;
+  await guard(api("/api/shops/"+b.id,{method:"DELETE"}),"Delete failed");
+  state.businesses=state.businesses.filter(function(x){return x.id!==b.id;});
+  if(markers[b.id]){map.removeLayer(markers[b.id]);delete markers[b.id];}
+  document.getElementById("drawer").classList.remove("open");
+  renderList();renderCounts();
+  toast("Shop deleted");
+};
+
+/* ---------- send documents ---------- */
+function fillDocSelect(){
+  var sel=document.getElementById("sdDoc");
+  sel.innerHTML=state.docs.length
+    ? state.docs.map(function(d){return '<option value="'+d.id+'">'+esc(d.title)+'</option>';}).join("")
+    : '<option value="">No documents uploaded yet — see Docs tab</option>';
+}
+function docLink(d){return location.origin+"/d/"+d.share_token;}
+function selectedDoc(){
+  var id=+document.getElementById("sdDoc").value;
+  return state.docs.find(function(d){return d.id===id;});
+}
+document.getElementById("sdText").onclick=function(){
+  var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
+  var b=getBiz(currentId)||{};
+  var num=(b.phone||"").replace(/[^\d+]/g,"");
+  var body="Here's the "+d.title+" from our conversation: "+docLink(d);
+  location.href="sms:"+num+(IOS?"&":"?")+"body="+encodeURIComponent(body);
+};
+document.getElementById("sdEmail").onclick=function(){
+  var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
+  var b=getBiz(currentId)||{};
+  location.href="mailto:"+encodeURIComponent(b.email||"")
+    +"?subject="+encodeURIComponent(d.title)
+    +"&body="+encodeURIComponent("Hi"+(b.contact?" "+b.contact:"")+",\n\nGreat speaking with you. Here's the "+d.title+":\n"+docLink(d)+"\n\nThank you!");
+};
+document.getElementById("sdCopy").onclick=function(){
+  var d=selectedDoc(); if(!d){toast("Upload a document in the Docs tab first");return;}
+  navigator.clipboard.writeText(docLink(d)).then(function(){toast("Link copied");},function(){prompt("Copy this link:",docLink(d));});
+};
+
+/* ---------- docs tab ---------- */
+async function loadDocs(){
+  state.docs=await api("/api/docs");
+  renderDocs();fillDocSelect();
+}
+function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB";}
+function renderDocs(){
+  var el=document.getElementById("docList");
+  if(!state.docs.length){el.innerHTML='<div class="hint">No documents yet. Upload your sales sheets and contracts above — then send them by text or email right from any shop\'s page.</div>';return;}
+  el.innerHTML=state.docs.map(function(d){
+    return '<div class="doc"><div class="dn">📄 '+esc(d.title)+'</div>'
+      +'<div class="dm">'+esc(d.filename)+' · '+fmtSize(d.size)+' · '+new Date(d.created_at).toLocaleDateString()+'</div>'
+      +'<div class="dbtns">'
+      +'<button class="btn small" onclick="window.__docText('+d.id+')">📱 Text</button>'
+      +'<button class="btn small" onclick="window.__docEmail('+d.id+')">✉️ Email</button>'
+      +'<button class="btn small" onclick="window.__docCopy('+d.id+')">🔗 Copy link</button>'
+      +'<a class="btn small" href="/d/'+esc(d.share_token)+'" target="_blank" rel="noopener">Open</a>'
+      +'<button class="btn small danger" onclick="window.__docDel('+d.id+')">🗑</button>'
+      +'</div></div>';
+  }).join("");
+}
+function docById(id){return state.docs.find(function(d){return d.id===id;});}
+window.__docText=function(id){var d=docById(id);if(!d)return;
+  location.href="sms:"+(IOS?"&":"?")+"body="+encodeURIComponent("Here's the "+d.title+": "+docLink(d));};
+window.__docEmail=function(id){var d=docById(id);if(!d)return;
+  location.href="mailto:?subject="+encodeURIComponent(d.title)+"&body="+encodeURIComponent("Here's the "+d.title+":\n"+docLink(d));};
+window.__docCopy=function(id){var d=docById(id);if(!d)return;
+  navigator.clipboard.writeText(docLink(d)).then(function(){toast("Link copied");},function(){prompt("Copy this link:",docLink(d));});};
+window.__docDel=async function(id){var d=docById(id);if(!d)return;
+  if(!confirm('Delete "'+d.title+'"? Links you already sent will stop working.'))return;
+  await guard(api("/api/docs/"+id,{method:"DELETE"}),"Delete failed");
+  state.docs=state.docs.filter(function(x){return x.id!==id;});
+  renderDocs();fillDocSelect();toast("Document deleted");};
+
+var pendingFile=null;
+document.getElementById("uplFile").addEventListener("change",function(){
+  pendingFile=this.files[0]||null;
+  var t=document.getElementById("uplTitle");
+  if(pendingFile){
+    t.style.display="block";
+    if(!t.value)t.value=pendingFile.name.replace(/\.[^.]+$/,"");
+    document.getElementById("uplGo").style.display="block";
+  }
+});
+document.getElementById("uplTitle").addEventListener("click",function(e){e.preventDefault();e.stopPropagation();});
+document.getElementById("uplGo").onclick=function(){
+  if(!pendingFile){toast("Choose a file first");return;}
+  if(pendingFile.size>20*1024*1024){toast("File too large — 20 MB max");return;}
+  var rd=new FileReader();
+  var f=pendingFile;
+  rd.onload=async function(){
+    var b64=String(rd.result).split(",")[1];
+    var d=await guard(api("/api/docs",{method:"POST",body:{
+      title:document.getElementById("uplTitle").value.trim()||f.name,
+      filename:f.name,mime:f.type||"application/octet-stream",data_b64:b64}}),"Upload failed");
+    state.docs.unshift(d);
+    renderDocs();fillDocSelect();
+    pendingFile=null;
+    document.getElementById("uplFile").value="";
+    document.getElementById("uplTitle").value="";
+    document.getElementById("uplTitle").style.display="none";
+    document.getElementById("uplGo").style.display="none";
+    toast('"'+d.title+'" uploaded ✓');
+  };
+  rd.readAsDataURL(f);
+};
+
+/* ---------- add shop ---------- */
+document.getElementById("aGps").onclick=function(){
+  if(!navigator.geolocation){toast("GPS not available");return;}
+  toast("Getting your location…");
+  navigator.geolocation.getCurrentPosition(function(p){
+    addLatLng=[p.coords.latitude,p.coords.longitude];
+    document.getElementById("aLoc").innerHTML="📍 Location set from GPS: <b>"+addLatLng[0].toFixed(5)+", "+addLatLng[1].toFixed(5)+"</b>";
+  },function(e){toast("Location error: "+e.message);},{enableHighAccuracy:true,timeout:15000});
+};
+document.getElementById("aPick").onclick=function(){
+  placing=true;
+  setTab("map");
+  document.getElementById("placeBanner").style.display="block";
+  document.getElementById("map").classList.add("placing");
+};
+map.on("click",function(e){
+  if(!placing)return;
+  placing=false;
+  addLatLng=[e.latlng.lat,e.latlng.lng];
+  document.getElementById("placeBanner").style.display="none";
+  document.getElementById("map").classList.remove("placing");
+  if(addPreview)map.removeLayer(addPreview);
+  addPreview=L.marker(addLatLng,{icon:L.divIcon({className:"",html:'<div style="width:27px;height:27px;border-radius:50%;background:#FFA726;border:2px dashed #0c1116;display:flex;align-items:center;justify-content:center;font:800 14px sans-serif;color:#10151b">＋</div>',iconSize:[27,27],iconAnchor:[13,13]})}).addTo(map);
+  setTab("add");
+  document.getElementById("aLoc").innerHTML="🗺 Location picked on map: <b>"+addLatLng[0].toFixed(5)+", "+addLatLng[1].toFixed(5)+"</b>";
+});
+document.getElementById("aGeo").onclick=async function(){
+  var addr=document.getElementById("aAddr").value.trim();
+  if(!addr){toast("Type the street address first");return;}
+  toast("Looking up address…");
+  try{
+    var r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q="+encodeURIComponent(addr));
+    var j=await r.json();
+    if(!j.length){toast("Address not found — try Tap map instead");return;}
+    addLatLng=[+j[0].lat,+j[0].lon];
+    document.getElementById("aLoc").innerHTML="🔎 Location found: <b>"+addLatLng[0].toFixed(5)+", "+addLatLng[1].toFixed(5)+"</b>";
+  }catch(e){toast("Lookup failed — check connection");}
+};
+document.getElementById("aSave").onclick=async function(){
+  var name=document.getElementById("aName").value.trim();
+  if(!name){toast("Business name is required");return;}
+  if(!addLatLng){toast("Set the location first (GPS, map, or address)");return;}
+  var b=await guard(api("/api/shops",{method:"POST",body:{
+    market:state.market,name:name,
+    category:document.getElementById("aCat").value,
+    zip:document.getElementById("aZip").value.trim(),
+    address:document.getElementById("aAddr").value.trim(),
+    phone:document.getElementById("aPhone").value.trim(),
+    email:document.getElementById("aEmail").value.trim(),
+    web:document.getElementById("aWeb").value.trim(),
+    contact:document.getElementById("aContact").value.trim(),
+    notes:document.getElementById("aNotes").value.trim(),
+    lat:addLatLng[0],lng:addLatLng[1]}}),"Save failed");
+  state.businesses.push(b);
+  ["aName","aZip","aAddr","aPhone","aEmail","aWeb","aContact","aNotes"].forEach(function(i){document.getElementById(i).value="";});
+  addLatLng=null;
+  if(addPreview){map.removeLayer(addPreview);addPreview=null;}
+  document.getElementById("aLoc").textContent="No location set yet — use one of the buttons above.";
+  refreshMarker(b);renderList();
+  setTab("map");
+  map.setView([b.lat,b.lng],15);
+  if(markers[b.id])markers[b.id].openPopup();
+  toast('"'+b.name+'" added ✓');
+};
+
+/* ---------- list ---------- */
+function matchStatus(b,s){
+  var f=flags(b);
+  switch(s){
+    case "not_visited":return !f.visited;
+    case "visited":return f.visited;
+    case "followup":return f.due;
+    case "met":return f.met;
+    case "no_meet":return f.visited&&!f.met;
+    case "sale":return f.sale;
+    case "no_sale":return f.visited&&!f.sale;
+    default:return true;
+  }
+}
+function renderList(){
+  var q=document.getElementById("fSearch").value.toLowerCase();
+  var s=document.getElementById("fStatus").value;
+  var c=document.getElementById("fCat").value;
+  var items=state.businesses.filter(function(b){
+    if(c&&b.category!==c)return false;
+    if(!matchStatus(b,s))return false;
+    if(q&&(b.name+" "+b.address+" "+b.phone+" "+b.zip).toLowerCase().indexOf(q)<0)return false;
+    return true;
+  });
+  items.sort(function(a,b){
+    var fa=flags(a),fb=flags(b);
+    if(fa.due!==fb.due)return fa.due?-1:1;
+    if(fa.visited!==fb.visited)return fa.visited?1:-1;
+    return a.name.localeCompare(b.name);
+  });
+  var el=document.getElementById("listItems");
+  if(!items.length){el.innerHTML='<div class="hint">No businesses match.</div>';return;}
+  el.innerHTML=items.map(function(b){
+    var f=flags(b);
+    var last=b.visits.length?fmtWhen(b.visits[b.visits.length-1].when):null;
+    return '<div class="card" onclick="window.__open('+b.id+')">'
+      +'<span class="pin" style="background:'+pinColor(b)+'"></span>'
+      +'<div class="body"><div class="name">'+esc(b.name)+'</div>'
+      +'<div class="meta">'+esc(b.address)+(b.phone?' · '+esc(b.phone):'')+'</div>'
+      +'<div class="tags"><span class="tag cat-'+(CAT_LABEL[b.category]?b.category:"other")+'">'+esc(CAT_LABEL[b.category]||b.category)+'</span>'
+      +(f.due?'<span class="tag due">Follow-up due</span>':'')
+      +'<span class="tag '+(f.visited?'yes':'no')+'">'+(f.visited?'Visited':'Not visited')+'</span>'
+      +'<span class="tag '+(f.met?'yes':'no')+'">'+(f.met?'Met owner':'No meet')+'</span>'
+      +'<span class="tag '+(f.sale?'yes':'no')+'">'+(f.sale?'Sale':'No sale')+'</span>'
+      +(last?'<span class="tag">Last: '+last+'</span>':'')
+      +'</div></div></div>';
+  }).join("");
+}
+["fSearch","fStatus","fCat"].forEach(function(id){document.getElementById(id).addEventListener("input",renderList);});
+
+/* ---------- tabs ---------- */
+var TABS={map:"tabMap",list:"tabList",add:"tabAdd",docs:"tabDocs"};
+Object.keys(TABS).forEach(function(t){
+  document.getElementById(TABS[t]).onclick=function(){setTab(t);};
+});
+function setTab(t){
+  Object.keys(TABS).forEach(function(k){document.getElementById(TABS[k]).classList.toggle("on",k===t);});
+  document.getElementById("listView").style.display=t==="list"?"block":"none";
+  document.getElementById("addView").style.display=t==="add"?"block":"none";
+  document.getElementById("docsView").style.display=t==="docs"?"block":"none";
+  var m=t==="map";
+  document.getElementById("btnLocate").style.display=m?"block":"none";
+  document.getElementById("btnNear").style.display=m?"block":"none";
+  if(m)map.invalidateSize();
+  if(t==="list")renderList();
+  if(t==="docs")guard(loadDocs(),"Load failed");
+}
+
+/* ---------- import ---------- */
+document.getElementById("btnImport").onclick=function(){
+  document.getElementById("importErr").textContent="";
+  document.getElementById("mMarket").textContent=(mktById(state.market)||{}).name||state.market;
+  document.getElementById("modal").classList.add("open");
+};
+document.getElementById("mCancel").onclick=function(){document.getElementById("modal").classList.remove("open");};
+document.getElementById("mAppend").onclick=function(){doImport(false);};
+document.getElementById("mReplace").onclick=function(){
+  if(confirm("Replace ALL shops in this market with the pasted list? Visit history on removed shops is lost."))doImport(true);
+};
+async function doImport(replace){
+  var err=document.getElementById("importErr");var arr;
+  try{arr=JSON.parse(document.getElementById("importText").value);}
+  catch(e){err.textContent="Invalid JSON: "+e.message;return;}
+  if(!Array.isArray(arr)){err.textContent="Top level must be an array [ ... ]";return;}
+  var bad=arr.findIndex(function(b){return !b.name;});
+  if(bad>=0){err.textContent="Record "+(bad+1)+" is missing a name.";return;}
+  try{
+    var r=await api("/api/import",{method:"POST",body:{market:state.market,records:arr,replace:replace}});
+    await loadShops();await loadMarkets();
+    document.getElementById("modal").classList.remove("open");
+    toast(r.added+" added, "+r.skipped+" duplicates skipped"+(replace?" (market replaced)":""));
+  }catch(e){err.textContent=e.message;}
+}
+
+/* ---------- exports ---------- */
+document.getElementById("btnExportMenu").onclick=function(){document.getElementById("exportModal").classList.add("open");};
+document.getElementById("expCancel").onclick=function(){document.getElementById("exportModal").classList.remove("open");};
+function csvDownload(rows,fname){
+  var csv=rows.map(function(r){return r.map(function(c){c=String(c==null?"":c);return '"'+c.replace(/"/g,'""')+'"';}).join(",");}).join("\r\n");
+  var blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname;
+  document.body.appendChild(a);a.click();a.remove();
+}
+document.getElementById("expFull").onclick=function(){
+  var head=["Business Name","Contact Name","Phone","Email","Website","Address","Postal Code","Category","Tags","Visited","Met Owner","Sale Closed","Materials Dropped","Follow Up","Last Visit","Visit Count","Visit History","Notes"];
+  var rows=[head].concat(state.businesses.map(function(b){
+    var f=flags(b);
+    var mats=b.visits.some(function(v){return v.materials;});
+    var latest=b.visits.length?b.visits[b.visits.length-1]:null;
+    var hist=b.visits.map(function(v){
+      return fmtWhen(v.when)+" | met:"+(v.met?"Y":"N")+" sale:"+(v.sale?"Y":"N")+" materials:"+(v.materials?"Y":"N")+(v.follow_up?" followup:"+v.follow_up:"")+(v.notes?" | "+v.notes.replace(/\n/g," "):"");
+    }).join(" || ");
+    var tags=["field-visit",b.category,f.sale?"customer":f.met?"warm-lead":f.visited?"visited":"prospect"].join(",");
+    return [b.name,b.contact,b.phone,b.email,b.web||"",b.address,b.zip,CAT_LABEL[b.category]||b.category,tags,
+      f.visited?"Yes":"No",f.met?"Yes":"No",f.sale?"Yes":"No",mats?"Yes":"No",
+      latest&&latest.follow_up?latest.follow_up:"",
+      latest?fmtWhen(latest.when):"",b.visits.length,hist,b.notes];
+  }));
+  csvDownload(rows,"crm-"+state.market+"-full-"+today()+".csv");
+  document.getElementById("exportModal").classList.remove("open");
+  toast("Full CSV downloaded — import into GoHighLevel");
+};
+document.getElementById("expToday").onclick=function(){
+  var t=today();
+  var head=["Business Name","Category","Address","Phone","Contact","Email","Visit Time","Materials Dropped","Met Owner","Sale Closed","Follow Up","Visit Notes"];
+  var rows=[head];
+  state.businesses.forEach(function(b){
+    b.visits.forEach(function(v){
+      if((v.when||"").slice(0,10)===t){
+        rows.push([b.name,CAT_LABEL[b.category]||b.category,b.address,b.phone,b.contact,b.email,fmtWhen(v.when),
+          v.materials?"Yes":"No",v.met?"Yes":"No",v.sale?"Yes":"No",v.follow_up||"",v.notes]);
+      }
+    });
+  });
+  if(rows.length===1){toast("No visits logged today yet");return;}
+  csvDownload(rows,"visit-notes-"+state.market+"-"+t+".csv");
+  document.getElementById("exportModal").classList.remove("open");
+  toast((rows.length-1)+" visit(s) exported");
+};
+
+/* ---------- logout ---------- */
+document.getElementById("btnLogout").onclick=async function(){
+  if(!confirm("Sign out of Field CRM?"))return;
+  try{await api("/api/logout",{method:"POST"});}catch(e){}
+  location.href="/login.html";
+};
+
+/* ---------- utils ---------- */
+function getBiz(id){return state.businesses.find(function(b){return b.id===+id;});}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m];});}
+function localNow(){var d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16);}
+function today(){var d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
+function fmtWhen(w){try{var d=new Date(w);return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})+" "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});}catch(e){return w;}}
+var toastTimer;
+function toast(msg){var t=document.getElementById("toast");t.textContent=msg;t.style.display="block";clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display="none";},2800);}
+
+/* ---------- boot ---------- */
+(async function boot(){
+  try{
+    await loadMarkets();
+    var m=mktById(state.market);
+    if(m)map.setView([m.center_lat,m.center_lng],m.zoom);
+    await loadShops();
+    loadDocs().catch(function(){});
+    pollPositions();
+  }catch(e){
+    if(e.message!=="unauthorized")toast("Couldn't load data: "+e.message);
+  }
+})();
+})();
+</script>
+</body>
+</html>

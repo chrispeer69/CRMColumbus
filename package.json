@@ -1,0 +1,17 @@
+{
+  "name": "crmcolumbus",
+  "version": "1.0.0",
+  "description": "Field CRM for door-to-door sales reps — map-first, multi-city template",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}
