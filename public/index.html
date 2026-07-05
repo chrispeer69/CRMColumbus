@@ -41,7 +41,8 @@
   .counts b{color:var(--text)}
 
   main{flex:1;position:relative;overflow:hidden}
-  #map{position:absolute;inset:0;background:#dfe3e8}
+  #map{position:absolute;inset:0;background:#ede5d3}
+  #map .leaflet-tile-pane{filter:contrast(1.08) saturate(1.05)}
   #map.placing{cursor:crosshair}
   #placeBanner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:950;background:var(--follow);color:#0d1319;font-weight:800;font-size:13px;padding:9px 16px;border-radius:10px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
 
@@ -417,7 +418,7 @@ function pinColor(b){var f=flags(b);return f.due?FOLLOW_COLOR : f.visited?VISITE
 /* ---------- map ---------- */
 var map=L.map("map",{zoomControl:false}).setView([39.9829,-82.9855],11);
 L.control.zoom({position:'topleft'}).addTo(map);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
 
 function makeIcon(b){
   var c=pinColor(b);
