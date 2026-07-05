@@ -41,7 +41,7 @@
   .counts b{color:var(--text)}
 
   main{flex:1;position:relative;overflow:hidden}
-  #map{position:absolute;inset:0;background:#0c1116}
+  #map{position:absolute;inset:0;background:#dfe3e8}
   #map.placing{cursor:crosshair}
   #placeBanner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:950;background:var(--follow);color:#0d1319;font-weight:800;font-size:13px;padding:9px 16px;border-radius:10px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
 
@@ -143,7 +143,16 @@
   .userdot{width:18px;height:18px;border-radius:50%;background:#2f7bff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,123,255,.28)}
   .repdot{width:16px;height:16px;border-radius:50%;background:#2FBF71;border:3px solid #fff;box-shadow:0 0 0 5px rgba(47,191,113,.3)}
   .replbl{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800;color:var(--text);white-space:nowrap}
-  @media (max-width:640px){ header h1{display:none} }
+  @media (max-width:640px){
+    header{padding:6px 8px;gap:6px}
+    header h1{display:none}
+    select.mkt{flex:1;max-width:none;min-width:0}
+    .btn{padding:8px 9px;font-size:12px;min-height:38px}
+    .toggle{order:10;width:100%}
+    .toggle button{flex:1;padding:11px 0;font-size:14px}
+    .legend{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+    .legend .counts{margin-left:8px;padding-right:6px}
+  }
 </style>
 </head>
 <body>
@@ -392,7 +401,7 @@ function pinColor(b){var f=flags(b);return f.due?FOLLOW_COLOR : f.visited?VISITE
 /* ---------- map ---------- */
 var map=L.map("map",{zoomControl:false}).setView([39.9829,-82.9855],11);
 L.control.zoom({position:'topleft'}).addTo(map);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
 
 function makeIcon(b){
   var c=pinColor(b);
