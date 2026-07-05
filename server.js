@@ -105,6 +105,18 @@ async function init() {
   }
 }
 
+/* Fire-and-forget office notification. Point NOTIFY_WEBHOOK_URL at a
+   GoHighLevel inbound webhook (or Zapier/Make) to sync field data. */
+function notify(event, payload) {
+  const url = process.env.NOTIFY_WEBHOOK_URL;
+  if (!url) return;
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, at: new Date().toISOString(), ...payload }),
+  }).catch(e => console.error('notify failed:', e.message));
+}
+
 const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes'];
 function shopVals(b) {
   return [b.name || '', b.address || '', b.zip || '', b.phone || '', b.email || '', b.web || '',
@@ -160,6 +172,7 @@ app.post('/api/shops', requireAuth, async (req, res, next) => {
     const b = req.body;
     if (!b.name) return res.status(400).json({ error: 'name required' });
     const shop = await insertShop(b.market || 'columbus', b);
+    notify('shop.created', { shop });
     res.json({ ...shop, visits: [] });
   } catch (e) { next(e); }
 });
@@ -170,6 +183,7 @@ app.put('/api/shops/:id', requireAuth, async (req, res, next) => {
       `UPDATE shops SET ${sets}, updated_at=now() WHERE id=$1 RETURNING *`,
       [+req.params.id, ...shopVals(req.body)]);
     if (!rows.length) return res.status(404).json({ error: 'not found' });
+    notify('shop.updated', { shop: rows[0] });
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
@@ -189,6 +203,8 @@ app.post('/api/shops/:id/visits', requireAuth, async (req, res, next) => {
        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [+req.params.id, v.when || new Date().toISOString().slice(0, 16),
        !!v.materials, !!v.met, !!v.sale, v.follow_up || null, v.notes || '']);
+    const shop = (await pool.query('SELECT * FROM shops WHERE id=$1', [+req.params.id])).rows[0];
+    notify('visit.logged', { shop, visit: visitOut(rows[0]) });
     res.json(visitOut(rows[0]));
   } catch (e) { next(e); }
 });

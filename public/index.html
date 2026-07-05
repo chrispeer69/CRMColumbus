@@ -41,8 +41,7 @@
   .counts b{color:var(--text)}
 
   main{flex:1;position:relative;overflow:hidden}
-  #map{position:absolute;inset:0;background:#ede5d3}
-  #map .leaflet-tile-pane{filter:contrast(1.08) saturate(1.05)}
+  #map{position:absolute;inset:0;background:#f2efe9}
   #map.placing{cursor:crosshair}
   #placeBanner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:950;background:var(--follow);color:#0d1319;font-weight:800;font-size:13px;padding:9px 16px;border-radius:10px;display:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
 
@@ -418,7 +417,7 @@ function pinColor(b){var f=flags(b);return f.due?FOLLOW_COLOR : f.visited?VISITE
 /* ---------- map ---------- */
 var map=L.map("map",{zoomControl:false}).setView([39.9829,-82.9855],11);
 L.control.zoom({position:'topleft'}).addTo(map);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{maxZoom:19,attribution:'© OSM © CARTO'}).addTo(map);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 
 function makeIcon(b){
   var c=pinColor(b);
@@ -472,12 +471,23 @@ function renderCounts(){
 
 /* ---------- markets ---------- */
 function mktById(slug){return state.markets.find(function(m){return m.slug===slug;});}
+var STATE_NAMES={AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",DC:"Washington DC"};
+function mktState(m){
+  var parts=m.name.split(",");
+  var st=parts.length>1?parts[parts.length-1].trim().toUpperCase():"";
+  return STATE_NAMES[st]||"Other";
+}
 async function loadMarkets(){
   state.markets=await api("/api/markets");
   if(!mktById(state.market)) state.market=state.markets.length?state.markets[0].slug:"columbus";
+  var groups={};
+  state.markets.forEach(function(m){var g=mktState(m);(groups[g]=groups[g]||[]).push(m);});
   var sel=document.getElementById("mktSel");
-  sel.innerHTML=state.markets.map(function(m){
-    return '<option value="'+esc(m.slug)+'"'+(m.slug===state.market?" selected":"")+'>'+esc(m.name)+' ('+m.shop_count+')</option>';
+  sel.innerHTML=Object.keys(groups).sort().map(function(g){
+    return '<optgroup label="'+esc(g)+'">'+groups[g].map(function(m){
+      var city=m.name.split(",")[0];
+      return '<option value="'+esc(m.slug)+'"'+(m.slug===state.market?" selected":"")+'>'+esc(city)+' ('+m.shop_count+')</option>';
+    }).join("")+'</optgroup>';
   }).join("");
 }
 document.getElementById("mktSel").addEventListener("change",function(){

@@ -31,6 +31,16 @@ Node.js + Express + PostgreSQL. Frontend is a single dependency-free page (Leafl
 
 That's it — open the domain, sign in, and the map loads with Columbus seeded. HTTPS is automatic (required for phone GPS).
 
+## Office notifications / GoHighLevel sync
+
+Set a `NOTIFY_WEBHOOK_URL` variable on the Railway app service and the server POSTs JSON to it in real time on every field entry:
+
+- `shop.created` — rep added a new business (full shop record)
+- `shop.updated` — contact info / details changed
+- `visit.logged` — visit logged (shop record + visit: met/sale/materials/follow-up/notes)
+
+Point it at a GoHighLevel inbound-webhook workflow (or Zapier/Make) to auto-create/update GHL contacts and alert the office. Without the variable set, nothing is sent — the in-app GoHighLevel CSV export still works either way.
+
 ## Launching a new city
 
 1. Sign in → **＋ City** → type e.g. `Cleveland, OH` (centers the map automatically)
