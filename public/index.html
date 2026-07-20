@@ -431,12 +431,15 @@
           <label><input type="checkbox" class="wlGrade" value="D" checked> D</label>
           <label><input type="checkbox" class="wlGrade" value="F" checked> F</label>
           &nbsp; <label><input type="checkbox" id="wlUngraded" checked> un-audited</label>
+          &nbsp; <label><input type="checkbox" id="wlHasEmail"> has email address</label>
         </div>
         <div id="wlResults" style="max-height:52vh;overflow:auto"><div class="hint">Set filters and tap Search.</div></div>
       </div>
       <div class="mf" style="flex-wrap:wrap;gap:8px">
         <button class="btn" id="wlClose">Close</button>
         <button class="btn" id="wlExport">Export CSV</button>
+        <button class="btn" id="wlCopyEmails">Copy emails</button>
+        <button class="btn" id="wlGmail" style="background:#0b8043;border-color:#0b8043;color:#fff">✉️ Email in Gmail</button>
         <button class="btn primary" id="wlRun">Search</button>
       </div>
     </div>
@@ -875,16 +878,35 @@ document.getElementById("drRunSeo").onclick=async function(){
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
 };
 /* ---------- Prospect worklist ---------- */
-var wlRows=[]; var wlNote='';
+var wlRows=[]; var wlNote=''; var wlSeq=0;
+function emailOne(v){ v=(v||'').trim(); return /.+@.+\..+/.test(v)?v.toLowerCase():null; }
+function emailsOf(b){ return [emailOne(b.email),emailOne(b.owner_email),emailOne(b.manager_email)].filter(Boolean); }
+function wlResultEmails(){ var set={}; (wlRows||[]).forEach(function(b){ emailsOf(b).forEach(function(e){ set[e]=1; }); }); return Object.keys(set); }
+function wlCopyText(txt,n,msg){ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){toast(msg||(n+" emails copied"));},function(){wlCopyFallback(txt,n,msg);}); } else wlCopyFallback(txt,n,msg); }
+function wlCopyFallback(txt,n,msg){ try{ var ta=document.createElement("textarea"); ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); toast(msg||(n+" emails copied")); }catch(e){ toast("Copy failed — select the list manually."); } }
 document.getElementById("btnWorklist").onclick=function(){ document.getElementById("wlModal").classList.add("open"); wlSearch(); };
 document.getElementById("wlClose").onclick=function(){ document.getElementById("wlModal").classList.remove("open"); };
+document.getElementById("wlCopyEmails").onclick=function(){ var em=wlResultEmails(); if(!em.length){toast("No email addresses in these results.");return;} wlCopyText(em.join(", "),em.length); };
+document.getElementById("wlGmail").onclick=function(){
+  var em=wlResultEmails(); if(!em.length){toast("No email addresses in these results.");return;}
+  var url="https://mail.google.com/mail/?view=cm&fs=1&bcc="+encodeURIComponent(em.join(","));
+  // Gmail's compose URL has a practical length cap (~2000 chars). For big lists, copy to clipboard and open a blank compose to paste into BCC.
+  if(url.length>1900){
+    wlCopyText(em.join(", "),em.length,em.length+" emails copied — too many for one Gmail link. Opening Gmail: paste into the BCC field.");
+    window.open("https://mail.google.com/mail/?view=cm&fs=1","_blank"); return;
+  }
+  window.open(url,"_blank");
+  toast("Opening Gmail — "+em.length+" recipients in BCC.");
+};
 async function wlSearch(){
+  var seq=++wlSeq; // guard: if a newer search starts (e.g. while a geocode is awaiting), this stale one won't overwrite results
   var kw=(document.getElementById("wlKw").value||'').trim().toLowerCase();
   var ind=(document.getElementById("wlIndustry").value||'').trim().toLowerCase();
   var cat=document.getElementById("wlCat").value;
   var alliance=document.getElementById("wlAlliance").value;
   var grades=[].slice.call(document.querySelectorAll('.wlGrade:checked')).map(function(c){return c.value;});
   var allGrades=grades.length===5, ungraded=document.getElementById("wlUngraded").checked;
+  var needEmail=document.getElementById("wlHasEmail").checked;
   var city=(document.getElementById("wlCity").value||'').trim(); var radius=parseFloat(document.getElementById("wlRadius").value)||0;
   var center=null;
   var geoFail=false;
@@ -897,6 +919,7 @@ async function wlSearch(){
     if(alliance==='none' && b.alliance_status) return false;
     if(alliance==='member' && !(b.alliance_status==='basic'||b.alliance_status==='elite')) return false;
     if(!allGrades){ var gr=b.latest_grade; if(gr){ if(grades.indexOf(gr)<0) return false; } else if(!ungraded) return false; }
+    if(needEmail && !emailsOf(b).length) return false;
     // Radius: only excludes shops that HAVE coordinates and fall outside. Coordless (e.g. imported) shops are kept so the list is never wrongly empty.
     if(center){ if(b.lat==null||b.lng==null){ noCoord++; } else if(distMi(center,[b.lat,b.lng])>radius) return false; }
     return true;
@@ -904,12 +927,14 @@ async function wlSearch(){
   wlNote = center ? ('Within '+radius+' mi of '+city+(noCoord?(' · '+noCoord+' without a mapped location shown too — geocode them by opening + Save'):'')) : (geoFail?'Location lookup unavailable — showing all matches':'');
   var gv={F:0,D:1,C:2,B:3,A:4};
   rows.sort(function(a,c){ var ga=gv[a.latest_grade]!=null?gv[a.latest_grade]:5, gc=gv[c.latest_grade]!=null?gv[c.latest_grade]:5; return ga-gc || (a.name||'').localeCompare(c.name||''); });
+  if(seq!==wlSeq) return; // a newer search superseded this one
   wlRows=rows; renderWlResults();
 }
 function renderWlResults(){
   var el=document.getElementById("wlResults");
   if(!wlRows.length){ el.innerHTML='<div class="hint">No matches.'+(wlNote?(' '+esc(wlNote)):'')+'</div>'; return; }
-  el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first)'+(wlNote?(' — '+esc(wlNote)):'')+'</div>'+wlRows.map(function(b){
+  var emCount=wlResultEmails().length;
+  el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first) · <b>'+emCount+' with an email</b>'+(wlNote?(' — '+esc(wlNote)):'')+'</div>'+wlRows.map(function(b){
     var g=b.latest_grade||'—'; var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">'
       +'<div style="min-width:0"><div style="font-weight:700">'+esc(b.name)+'</div><div class="hint" style="font-size:12px">'+esc(b.industry||CAT_LABEL[b.category]||b.category)+(b.address?' · '+esc(b.address):'')+'</div></div>'
