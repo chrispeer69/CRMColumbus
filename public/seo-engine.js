@@ -68,7 +68,13 @@ async function auditOne(raw){
   const html=await fetchHtml(url);
   const doc=new DOMParser().parseFromString(html,'text/html');
   const bodyText=(doc.body&&doc.body.textContent||'').trim();
-  if(html.length<500||bodyText.length<30) throw {blocked:true,reason:'Empty or near-empty response — the real page could not be retrieved.'};
+  // JS-rendered shell detection: a page with scripts / SPA markers but almost no readable text is NOT a failed
+  // fetch — it's client-side-rendered content that crawlers & AI answer engines can't see. Flag it, don't fail.
+  const _scriptCount=doc.querySelectorAll('script').length;
+  const _hasBundle=/<script[^>]+\bsrc=/i.test(html);
+  const _spaRoot=/id=["'](root|app|__next|__nuxt|__gatsby|q-app|svelte)["']|data-reactroot|__NEXT_DATA__|window\.__NUXT__|ng-version|data-server-rendered/i.test(html);
+  const jsShell = bodyText.length<200 && html.length>=500 && (_hasBundle||_spaRoot||_scriptCount>=2);
+  if((html.length<500||bodyText.length<30) && !jsShell) throw {blocked:true,reason:'Empty or near-empty response — the real page could not be retrieved.'};
   const tLow=(doc.querySelector('title')&&doc.querySelector('title').textContent||'').trim().toLowerCase();
   const cTitles=['just a moment','one moment','attention required','checking your browser','please wait','verifying you are human','ddos-guard'];
   // Strong interstitial markers only. NOTE: Cloudflare injects "/cdn-cgi/challenge-platform/" into NORMAL fully-served 200 pages,
@@ -142,6 +148,7 @@ async function auditOne(raw){
   add(AISEARCH,'Q&A / FAQ structured data',5, hasFaq?'pass':'warn', hasFaq?'FAQ / Q&A schema found':'No FAQ or Q&A schema','AI answer engines pull answers from FAQ/Q&A markup.','Add an FAQ section with FAQPage JSON-LD.');
   add(AISEARCH,'Organization / entity data',4, (hasOrg&&hasSameAs)?'pass':(hasOrg?'warn':'fail'), hasOrg?(hasSameAs?'Organization schema with linked profiles':'Organization schema, no sameAs'):'No Organization schema','AI builds a profile from Organization schema + sameAs links.','Add Organization JSON-LD with name, logo, sameAs links.');
   add(AISEARCH,'Semantic main-content region',2, hasMain?'pass':'warn', hasMain?'Uses <main> / <article>':'No <main> or <article>','Helps AI crawlers find your real content.','Wrap primary content in <main> or <article>.');
+  add(AISEARCH,'Content readable without JavaScript',6, jsShell?'fail':'pass', jsShell?('Only ~'+bodyText.length+' characters of text in the raw HTML — this page is JavaScript-rendered'):(words+' words of readable text in the raw HTML'),'Google can render JavaScript, but AI answer engines (ChatGPT, Perplexity, Google AI Overviews) and many crawlers do NOT. If your content only appears after JavaScript runs, they see a near-empty page and cannot read or recommend you.','Serve your main content, headings and business info in the initial HTML via server-side rendering (SSR), static generation, or prerendering.');
   return { url, domain:o.hostname, origin, timestamp:new Date().toLocaleString(), ssl, checks, tracking, schemaTypes,
     stats:{images:imgs.length, scripts:doc.querySelectorAll('script').length, stylesheets:doc.querySelectorAll('link[rel="stylesheet"]').length, sizeKb, words} };
 }
