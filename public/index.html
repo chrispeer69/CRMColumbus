@@ -141,6 +141,7 @@
   .mbox h3{padding:14px;border-bottom:1px solid var(--line);font-size:15px}
   .mbox .mb{padding:14px;overflow-y:auto}
   .mbox textarea{width:100%;min-height:180px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  #wlModal input,#wlModal select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:9px;font-size:14px;width:100%}
   .mbox .mf{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
   .hint{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5}
   code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:11px}
@@ -175,6 +176,7 @@
     <button id="tabAdd">＋ Shop</button>
     <button id="tabDocs">Docs</button>
   </div>
+  <button class="btn small" id="btnWorklist" title="Build a prospect worklist by grade, industry, radius">Worklist</button>
   <button class="btn small" id="btnSeoTool" title="Run a quick SEO report on any website">SEO Report</button>
   <button class="btn small" id="btnExportMenu">Export ▾</button>
   <button class="btn small" id="btnImport">Import</button>
@@ -305,6 +307,7 @@
         </div>
         <div class="fld"><label>ZIP</label><input id="drZip"></div>
       </div>
+      <div class="fld"><label>Industry</label><input id="drIndustry" placeholder="e.g., Towing, Auto repair, Auto body"></div>
       <div class="fld"><label>Address</label><input id="drAddr"></div>
       <div class="frow">
         <div class="fld"><label>Phone</label><input id="drPhone" inputmode="tel"></div>
@@ -403,6 +406,36 @@
     </div>
   </div>
 
+  <div class="mwrap" id="wlModal">
+    <div class="mbox" style="width:880px;max-width:100%">
+      <h3>Prospect worklist</h3>
+      <div class="mb">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px">
+          <input id="wlKw" placeholder="Name contains">
+          <input id="wlIndustry" placeholder="Industry contains">
+          <select id="wlCat"><option value="">Any category</option><option value="repair">Auto repair</option><option value="towing">Towing</option><option value="body">Body shop</option><option value="other">Other</option></select>
+          <select id="wlAlliance"><option value="">Any membership</option><option value="none">No alliance profile</option><option value="member">Alliance member</option></select>
+          <input id="wlCity" placeholder="Center city (for radius)">
+          <input id="wlRadius" type="number" min="1" placeholder="Radius (miles)">
+        </div>
+        <div style="margin-bottom:10px;font-size:13px;color:var(--muted)">Grades:
+          <label><input type="checkbox" class="wlGrade" value="A" checked> A</label>
+          <label><input type="checkbox" class="wlGrade" value="B" checked> B</label>
+          <label><input type="checkbox" class="wlGrade" value="C" checked> C</label>
+          <label><input type="checkbox" class="wlGrade" value="D" checked> D</label>
+          <label><input type="checkbox" class="wlGrade" value="F" checked> F</label>
+          &nbsp; <label><input type="checkbox" id="wlUngraded" checked> un-audited</label>
+        </div>
+        <div id="wlResults" style="max-height:52vh;overflow:auto"><div class="hint">Set filters and tap Search.</div></div>
+      </div>
+      <div class="mf" style="flex-wrap:wrap;gap:8px">
+        <button class="btn" id="wlClose">Close</button>
+        <button class="btn" id="wlExport">Export CSV</button>
+        <button class="btn primary" id="wlRun">Search</button>
+      </div>
+    </div>
+  </div>
+
   <div class="mwrap" id="seoModal">
     <div class="mbox" style="width:860px;max-width:100%">
       <h3 id="seoTitle">SEO &amp; AI Search Report</h3>
@@ -417,6 +450,7 @@
         <button class="btn" id="seoClose">Close</button>
         <button class="btn" id="seoPrint">🖨 Print / Save PDF</button>
         <button class="btn" id="seoEmail">✉️ Email report</button>
+        <button class="btn" id="seoSaveDoc">📄 Save as document</button>
         <button class="btn primary" id="seoAddCrm">Add to CRM</button>
       </div>
     </div>
@@ -674,10 +708,25 @@ function renderSeo(b){
     var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':'#EF5350';
     el.innerHTML='<div style="font-weight:800;font-size:16px;color:'+col+'">Grade '+g+(s!==''?' · '+s+'/100':'')+'</div>'
       +'<div class="hint" style="margin:2px 0 8px">'+(b.last_audit_at?('Last audit '+new Date(b.last_audit_at).toLocaleString()):'')+'</div>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="drViewReport">View full report</button><button class="btn" id="drEmailReport">✉️ Email report</button></div>';
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="drViewReport">View full report</button><button class="btn" id="drEmailReport">✉️ Email report</button><button class="btn" id="drSaveDoc">📄 Save as document</button></div>'
+      +'<div id="drSeoHistory" class="hint" style="margin-top:10px"></div>';
     document.getElementById("drViewReport").onclick=function(){ openSeoReport(b.last_report, b.id, b.name); };
     document.getElementById("drEmailReport").onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.owner_name||b.name||b.domain||''}; document.getElementById("seoEmail").click(); };
+    document.getElementById("drSaveDoc").onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.name||b.domain||''}; saveReportAsDoc(); };
+    api("/api/shops/"+b.id+"/audits").then(function(rows){
+      if(!rows||!rows.length)return; var el2=document.getElementById("drSeoHistory"); if(!el2)return;
+      el2.innerHTML='<div style="font-weight:700;margin-bottom:2px">Audit history</div>'+rows.map(function(a){return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--line)"><span>'+new Date(a.created_at).toLocaleDateString()+' — '+(a.grade||'')+(a.score!=null?(' ('+a.score+')'):'')+'</span><button class="btn" style="padding:3px 9px;min-height:0" onclick="viewAudit('+a.id+')">View</button></div>';}).join('');
+    }).catch(function(){});
   } else { el.textContent='No audit yet — tap Run SEO audit.'; }
+}
+async function viewAudit(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} }
+function saveReportAsDoc(){
+  if(!seoState.report){toast("Run a report first");return;}
+  var r=seoState.report;
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>SEO Report — '+r.domain+'</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Inter,Arial,sans-serif;margin:20px;color:#0f172a;background:#fff}</style></head><body>'+SEO.reportHTML(r)+'</body></html>';
+  var b64=btoa(unescape(encodeURIComponent(html)));
+  guard(api("/api/docs",{method:"POST",body:{title:"SEO Report — "+r.domain,filename:"seo-report-"+r.domain.replace(/[^a-z0-9]/gi,'-')+".html",mime:"text/html",data_b64:b64}}),"Save failed")
+    .then(function(){ toast("Saved to Documents — text/email it from a shop's Send-a-document."); loadDocs&&loadDocs(); }).catch(function(){});
 }
 function openDrawer(id){
   currentId=id;
@@ -691,6 +740,7 @@ function openDrawer(id){
   document.getElementById("drBizName").value=b.name||"";
   document.getElementById("drCat").value=b.category||"other";
   document.getElementById("drZip").value=b.zip||"";
+  document.getElementById("drIndustry").value=b.industry||"";
   document.getElementById("drAddr").value=b.address||"";
   document.getElementById("drPhone").value=b.phone||"";
   document.getElementById("drEmail").value=b.email||"";
@@ -741,6 +791,7 @@ document.getElementById("drSave").onclick=async function(){
   var upd={name:document.getElementById("drBizName").value.trim()||b.name,
     category:document.getElementById("drCat").value,
     zip:document.getElementById("drZip").value.trim(),
+    industry:document.getElementById("drIndustry").value.trim(),
     address:document.getElementById("drAddr").value.trim(),
     phone:document.getElementById("drPhone").value.trim(),
     email:document.getElementById("drEmail").value.trim(),
@@ -800,11 +851,61 @@ document.getElementById("drRunSeo").onclick=async function(){
     renderSeo(b); toast("Audit saved — Grade "+sc.grade+" ("+sc.score+"/100)");
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
 };
+/* ---------- Prospect worklist ---------- */
+var wlRows=[];
+document.getElementById("btnWorklist").onclick=function(){ document.getElementById("wlModal").classList.add("open"); document.getElementById("wlResults").innerHTML='<div class="hint">Set filters and tap Search.</div>'; };
+document.getElementById("wlClose").onclick=function(){ document.getElementById("wlModal").classList.remove("open"); };
+async function wlSearch(){
+  var kw=(document.getElementById("wlKw").value||'').trim().toLowerCase();
+  var ind=(document.getElementById("wlIndustry").value||'').trim().toLowerCase();
+  var cat=document.getElementById("wlCat").value;
+  var alliance=document.getElementById("wlAlliance").value;
+  var grades=[].slice.call(document.querySelectorAll('.wlGrade:checked')).map(function(c){return c.value;});
+  var allGrades=grades.length===5, ungraded=document.getElementById("wlUngraded").checked;
+  var city=(document.getElementById("wlCity").value||'').trim(); var radius=parseFloat(document.getElementById("wlRadius").value)||0;
+  var center=null;
+  if(city&&radius>0){ try{ var g=await api("/api/geocode?q="+encodeURIComponent(city)); if(g&&g.found) center=[g.lat,g.lng]; }catch(e){} if(!center) toast("Could not locate that city (set a Maps key)."); }
+  var rows=(state.businesses||[]).filter(function(b){
+    if(kw && (b.name||'').toLowerCase().indexOf(kw)<0) return false;
+    if(ind && (b.industry||'').toLowerCase().indexOf(ind)<0) return false;
+    if(cat && b.category!==cat) return false;
+    if(alliance==='none' && b.alliance_status) return false;
+    if(alliance==='member' && !(b.alliance_status==='basic'||b.alliance_status==='elite')) return false;
+    if(!allGrades){ var gr=b.latest_grade; if(gr){ if(grades.indexOf(gr)<0) return false; } else if(!ungraded) return false; }
+    if(center){ if(b.lat==null||b.lng==null) return false; if(distMi(center,[b.lat,b.lng])>radius) return false; }
+    return true;
+  });
+  var gv={F:0,D:1,C:2,B:3,A:4};
+  rows.sort(function(a,c){ var ga=gv[a.latest_grade]!=null?gv[a.latest_grade]:5, gc=gv[c.latest_grade]!=null?gv[c.latest_grade]:5; return ga-gc || (a.name||'').localeCompare(c.name||''); });
+  wlRows=rows; renderWlResults();
+}
+function renderWlResults(){
+  var el=document.getElementById("wlResults");
+  if(!wlRows.length){ el.innerHTML='<div class="hint">No matches.</div>'; return; }
+  el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first)</div>'+wlRows.map(function(b){
+    var g=b.latest_grade||'—'; var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">'
+      +'<div style="min-width:0"><div style="font-weight:700">'+esc(b.name)+'</div><div class="hint" style="font-size:12px">'+esc(b.industry||CAT_LABEL[b.category]||b.category)+(b.address?' · '+esc(b.address):'')+'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0"><span style="font-weight:800;color:'+col+'">'+g+(b.latest_score!=null?(' '+b.latest_score):'')+'</span><button class="btn" style="padding:4px 10px;min-height:0" onclick="wlOpen('+b.id+')">Open</button></div>'
+    +'</div>';
+  }).join('');
+}
+function wlOpen(id){ document.getElementById("wlModal").classList.remove("open"); openDrawer(id); }
+document.getElementById("wlRun").onclick=wlSearch;
+document.getElementById("wlExport").onclick=function(){
+  if(!wlRows.length){toast("Search first");return;}
+  var cols=["name","industry","category","address","zip","phone","email","web","latest_grade","latest_score","alliance_status","voice_ai","cc_processing"];
+  var cell=function(v){v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  var csv=[cols.join(',')].concat(wlRows.map(function(b){return cols.map(function(c){return cell(b[c]);}).join(',');})).join('\n');
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='worklist.csv';a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+};
+
 /* ---------- SEO report modal (header tool + drawer viewer) ---------- */
 var seoState={report:null,shopId:null,name:''};
 function seoOpen(){ document.getElementById("seoModal").classList.add("open"); }
 function seoCloseFn(){ document.getElementById("seoModal").classList.remove("open"); }
 document.getElementById("seoClose").onclick=seoCloseFn;
+document.getElementById("seoSaveDoc").onclick=saveReportAsDoc;
 document.getElementById("btnSeoTool").onclick=function(){
   seoState={report:null,shopId:null,name:''};
   document.getElementById("seoTitle").textContent="SEO & AI Search Report";

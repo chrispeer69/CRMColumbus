@@ -70,7 +70,19 @@ async function init() {
     ADD COLUMN IF NOT EXISTS last_audit_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS last_report JSONB,
     ADD COLUMN IF NOT EXISTS voice_ai TEXT, ADD COLUMN IF NOT EXISTS voice_ai_provider TEXT, ADD COLUMN IF NOT EXISTS voice_ai_monthly TEXT,
     ADD COLUMN IF NOT EXISTS voice_ai_permin TEXT, ADD COLUMN IF NOT EXISTS voice_ai_setup TEXT,
-    ADD COLUMN IF NOT EXISTS cc_processing TEXT, ADD COLUMN IF NOT EXISTS cc_company TEXT, ADD COLUMN IF NOT EXISTS cc_rate TEXT`);
+    ADD COLUMN IF NOT EXISTS cc_processing TEXT, ADD COLUMN IF NOT EXISTS cc_company TEXT, ADD COLUMN IF NOT EXISTS cc_rate TEXT,
+    ADD COLUMN IF NOT EXISTS industry TEXT`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS audits(
+    id SERIAL PRIMARY KEY,
+    shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+    report JSONB NOT NULL, score INTEGER, grade TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audits_shop ON audits (shop_id, created_at DESC)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS shared_reports(
+    token TEXT PRIMARY KEY, name TEXT, report JSONB NOT NULL, summary JSONB,
+    paid BOOLEAN DEFAULT false, stripe_session TEXT, created_at TIMESTAMPTZ DEFAULT now()
+  )`);
   await pool.query(`CREATE TABLE IF NOT EXISTS visits(
     id SERIAL PRIMARY KEY,
     shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -128,7 +140,7 @@ function notify(event, payload) {
 
 const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes',
   'owner_name', 'owner_phone', 'owner_email', 'manager_name', 'manager_phone', 'manager_email', 'alliance_status',
-  'voice_ai', 'voice_ai_provider', 'voice_ai_monthly', 'voice_ai_permin', 'voice_ai_setup', 'cc_processing', 'cc_company', 'cc_rate'];
+  'voice_ai', 'voice_ai_provider', 'voice_ai_monthly', 'voice_ai_permin', 'voice_ai_setup', 'cc_processing', 'cc_company', 'cc_rate', 'industry'];
 function shopVals(b) {
   return [b.name || '', b.address || '', b.zip || '', b.phone || '', b.email || '', b.web || '',
     b.contact || '', b.category || 'repair',
@@ -136,7 +148,7 @@ function shopVals(b) {
     b.owner_name || '', b.owner_phone || '', b.owner_email || '',
     b.manager_name || '', b.manager_phone || '', b.manager_email || '', b.alliance_status || '',
     b.voice_ai || '', b.voice_ai_provider || '', b.voice_ai_monthly || '', b.voice_ai_permin || '', b.voice_ai_setup || '',
-    b.cc_processing || '', b.cc_company || '', b.cc_rate || ''];
+    b.cc_processing || '', b.cc_company || '', b.cc_rate || '', b.industry || ''];
 }
 async function insertShop(market, b) {
   const q = `INSERT INTO shops(market_slug,${SHOP_COLS.join(',')})
@@ -363,6 +375,19 @@ app.post('/api/send-report', requireAuth, async (req, res) => {
   if (r && r.ok) return res.json({ ok: true });
   return res.status(502).json({ error: 'send_failed', detail: (r && (r.body || r.error)) || null });
 });
+// Geocode a place (for radius search centers)
+app.get('/api/geocode', requireAuth, async (req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY || process.env.PLACES_API_KEY;
+  if (!key) return res.status(503).json({ error: 'geocode_not_configured' });
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q required' });
+  try {
+    const j = await fetch('https://maps.googleapis.com/maps/api/geocode/json?address=' + encodeURIComponent(q) + '&key=' + key).then(r => r.json());
+    const loc = j.results && j.results[0] && j.results[0].geometry && j.results[0].geometry.location;
+    if (!loc) return res.json({ found: false });
+    res.json({ found: true, lat: loc.lat, lng: loc.lng });
+  } catch (e) { res.status(502).json({ error: 'geocode_failed' }); }
+});
 // Google Places lookup — find a business's website/phone from name + location (field speed)
 app.get('/api/places', requireAuth, async (req, res) => {
   const key = process.env.PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
@@ -386,7 +411,22 @@ app.post('/api/shops/:id/audit', requireAuth, async (req, res, next) => {
       'UPDATE shops SET last_report=$1, latest_score=$2, latest_grade=$3, last_audit_at=now(), updated_at=now() WHERE id=$4 RETURNING *',
       [JSON.stringify(report), (score == null ? null : score), grade || null, +req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'not found' });
+    await pool.query('INSERT INTO audits(shop_id,report,score,grade) VALUES($1,$2,$3,$4)',
+      [+req.params.id, JSON.stringify(report), (score == null ? null : score), grade || null]);
     notify('seo.audited', { shop: rows[0] });
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+app.get('/api/shops/:id/audits', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT id,score,grade,created_at FROM audits WHERE shop_id=$1 ORDER BY created_at DESC LIMIT 50', [+req.params.id]);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+app.get('/api/audits/:id', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT report FROM audits WHERE id=$1', [+req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
