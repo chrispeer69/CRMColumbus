@@ -67,7 +67,10 @@ async function init() {
     ADD COLUMN IF NOT EXISTS manager_name TEXT, ADD COLUMN IF NOT EXISTS manager_phone TEXT, ADD COLUMN IF NOT EXISTS manager_email TEXT,
     ADD COLUMN IF NOT EXISTS alliance_status TEXT,
     ADD COLUMN IF NOT EXISTS latest_grade TEXT, ADD COLUMN IF NOT EXISTS latest_score INTEGER,
-    ADD COLUMN IF NOT EXISTS last_audit_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS last_report JSONB`);
+    ADD COLUMN IF NOT EXISTS last_audit_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS last_report JSONB,
+    ADD COLUMN IF NOT EXISTS voice_ai TEXT, ADD COLUMN IF NOT EXISTS voice_ai_provider TEXT, ADD COLUMN IF NOT EXISTS voice_ai_monthly TEXT,
+    ADD COLUMN IF NOT EXISTS voice_ai_permin TEXT, ADD COLUMN IF NOT EXISTS voice_ai_setup TEXT,
+    ADD COLUMN IF NOT EXISTS cc_processing TEXT, ADD COLUMN IF NOT EXISTS cc_company TEXT, ADD COLUMN IF NOT EXISTS cc_rate TEXT`);
   await pool.query(`CREATE TABLE IF NOT EXISTS visits(
     id SERIAL PRIMARY KEY,
     shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -124,13 +127,16 @@ function notify(event, payload) {
 }
 
 const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes',
-  'owner_name', 'owner_phone', 'owner_email', 'manager_name', 'manager_phone', 'manager_email', 'alliance_status'];
+  'owner_name', 'owner_phone', 'owner_email', 'manager_name', 'manager_phone', 'manager_email', 'alliance_status',
+  'voice_ai', 'voice_ai_provider', 'voice_ai_monthly', 'voice_ai_permin', 'voice_ai_setup', 'cc_processing', 'cc_company', 'cc_rate'];
 function shopVals(b) {
   return [b.name || '', b.address || '', b.zip || '', b.phone || '', b.email || '', b.web || '',
     b.contact || '', b.category || 'repair',
     isFinite(+b.lat) ? +b.lat : null, isFinite(+b.lng) ? +b.lng : null, b.notes || '',
     b.owner_name || '', b.owner_phone || '', b.owner_email || '',
-    b.manager_name || '', b.manager_phone || '', b.manager_email || '', b.alliance_status || ''];
+    b.manager_name || '', b.manager_phone || '', b.manager_email || '', b.alliance_status || '',
+    b.voice_ai || '', b.voice_ai_provider || '', b.voice_ai_monthly || '', b.voice_ai_permin || '', b.voice_ai_setup || '',
+    b.cc_processing || '', b.cc_company || '', b.cc_rate || ''];
 }
 async function insertShop(market, b) {
   const q = `INSERT INTO shops(market_slug,${SHOP_COLS.join(',')})
@@ -337,7 +343,26 @@ app.get('/api/proxy', requireAuth, async (req, res) => {
     res.status(r.status).type('text/plain; charset=utf-8').send(body);
   } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
 });
-app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '' }));
+app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '', emailEnabled: !!process.env.RESEND_API_KEY }));
+async function sendEmail({ to, subject, html, text }) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, error: 'email_not_configured' };
+  const from = process.env.MAIL_FROM || 'Blue Collar AI <onboarding@resend.dev>';
+  try {
+    const body = { from, to: Array.isArray(to) ? to : [to], subject, html }; if (text) body.text = text;
+    const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { const t = await r.text().catch(() => ''); return { ok: false, status: r.status, body: t }; }
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+app.post('/api/send-report', requireAuth, async (req, res) => {
+  const { to, subject, html, text } = req.body || {};
+  if (!to || !/.+@.+\..+/.test(to) || !html) return res.status(400).json({ error: 'to_and_html_required' });
+  if (!process.env.RESEND_API_KEY) return res.status(503).json({ error: 'email_not_configured' });
+  const r = await sendEmail({ to, subject: subject || 'Your SEO Audit', html, text });
+  if (r && r.ok) return res.json({ ok: true });
+  return res.status(502).json({ error: 'send_failed', detail: (r && (r.body || r.error)) || null });
+});
 // Google Places lookup — find a business's website/phone from name + location (field speed)
 app.get('/api/places', requireAuth, async (req, res) => {
   const key = process.env.PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;

@@ -8,6 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Field CRM</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="/seo-engine.js"></script>
 <style>
@@ -20,7 +22,9 @@
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
-  body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--ink);color:var(--text);display:flex;flex-direction:column;overflow:hidden;font-size:15px}
+  body{font-family:'Inter',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--ink);color:var(--text);display:flex;flex-direction:column;overflow:hidden;font-size:15px;-webkit-font-smoothing:antialiased}
+  .btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+  .btn.primary:hover{background:#1d4ed8}
 
   header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
   header h1{font-size:14px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-right:2px}
@@ -169,6 +173,7 @@
     <button id="tabAdd">＋ Shop</button>
     <button id="tabDocs">Docs</button>
   </div>
+  <button class="btn small" id="btnSeoTool" title="Run a quick SEO report on any website">SEO Report</button>
   <button class="btn small" id="btnExportMenu">Export ▾</button>
   <button class="btn small" id="btnImport">Import</button>
   <button class="btn small" id="btnLogout" title="Sign out">⎋</button>
@@ -317,6 +322,27 @@
       </div>
       <div class="fld"><label>Manager email</label><input id="drMgrEmail" type="email"></div>
       <div class="fld" id="drAllianceWrap"><label>US Alliance status</label><select id="drAlliance"><option value="">No profile yet</option><option value="basic">Basic profile</option><option value="elite">Elite profile</option></select></div>
+
+      <div class="dr-sec">Voice AI attendant</div>
+      <div class="fld"><label>Using a voice AI attendant?</label><select id="drVoiceAi" onchange="document.getElementById('drVoiceAiDetails').style.display=this.value==='yes'?'block':'none'"><option value="">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></div>
+      <div id="drVoiceAiDetails" style="display:none">
+        <div class="fld"><label>Provider / LLM</label><input id="drVoiceProvider" placeholder="e.g., Vapi, Retell, Bland, custom GPT"></div>
+        <div class="frow">
+          <div class="fld"><label>Monthly cost</label><input id="drVoiceMonthly" placeholder="$ / mo"></div>
+          <div class="fld"><label>Per-minute</label><input id="drVoicePermin" placeholder="$ / min"></div>
+        </div>
+        <div class="fld"><label>Setup type</label><select id="drVoiceSetup"><option value="">—</option><option>Generic setup</option><option>Custom coded logic</option><option>Complex setup</option></select></div>
+      </div>
+
+      <div class="dr-sec">Credit card processing</div>
+      <div class="fld"><label>Processing credit cards?</label><select id="drCc" onchange="document.getElementById('drCcDetails').style.display=this.value==='yes'?'block':'none'"><option value="">Unknown</option><option value="no">No</option><option value="yes">Yes</option></select></div>
+      <div id="drCcDetails" style="display:none">
+        <div class="frow">
+          <div class="fld"><label>Processor</label><input id="drCcCompany" placeholder="e.g., Square, Stripe, Clover"></div>
+          <div class="fld"><label>Rate</label><input id="drCcRate" placeholder="e.g., 2.9% + 30¢"></div>
+        </div>
+      </div>
+
       <div class="fld"><label>Notes</label><textarea id="drNotes" placeholder="Anything worth remembering"></textarea></div>
       <button class="btn small" id="drSave">Save details</button>
       <div class="save-note" id="drSaved"></div>
@@ -372,6 +398,25 @@
         <div class="hint">Exports cover the current market. Full export includes contacts, statuses, and complete visit history. Today's notes exports visits logged today — run it at end of day.</div>
       </div>
       <div class="mf"><button class="btn" id="expCancel">Close</button></div>
+    </div>
+  </div>
+
+  <div class="mwrap" id="seoModal">
+    <div class="mbox" style="width:860px;max-width:100%">
+      <h3 id="seoTitle">SEO &amp; AI Search Report</h3>
+      <div class="mb">
+        <div id="seoToolBar" style="display:flex;gap:8px;margin-bottom:12px">
+          <input id="seoUrl" placeholder="example.com" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:11px;font-size:15px">
+          <button class="btn primary" id="seoRun">Run audit</button>
+        </div>
+        <div id="seoBody" style="background:#fff;border-radius:10px;padding:20px;max-height:62vh;overflow:auto"><div class="hint" style="color:#64748b">Enter a website above and tap <b>Run audit</b>.</div></div>
+      </div>
+      <div class="mf" style="flex-wrap:wrap;gap:8px">
+        <button class="btn" id="seoClose">Close</button>
+        <button class="btn" id="seoPrint">🖨 Print / Save PDF</button>
+        <button class="btn" id="seoEmail">✉️ Email report</button>
+        <button class="btn primary" id="seoAddCrm">Add to CRM</button>
+      </div>
     </div>
   </div>
 
@@ -622,9 +667,15 @@ window.__open=openDrawer;
 fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';}).catch(function(){});
 function renderSeo(b){
   var el=document.getElementById("drSeo"); if(!el)return;
-  if(b.last_report && window.SEO){ el.innerHTML=SEO.findingsHTML(b.last_report)+(b.last_audit_at?('<div style="opacity:.6;font-size:11px;margin-top:6px">Last audit '+new Date(b.last_audit_at).toLocaleString()+'</div>'):''); }
-  else if(b.latest_grade){ el.textContent='Grade '+b.latest_grade+(b.latest_score!=null?(' ('+b.latest_score+'/100)'):'')+' — tap Run SEO audit to refresh.'; }
-  else el.textContent='No audit yet — tap Run SEO audit.';
+  if(b.last_report){
+    var g=b.latest_grade||'', s=(b.latest_score!=null?b.latest_score:'');
+    var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':'#EF5350';
+    el.innerHTML='<div style="font-weight:800;font-size:16px;color:'+col+'">Grade '+g+(s!==''?' · '+s+'/100':'')+'</div>'
+      +'<div class="hint" style="margin:2px 0 8px">'+(b.last_audit_at?('Last audit '+new Date(b.last_audit_at).toLocaleString()):'')+'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="drViewReport">View full report</button><button class="btn" id="drEmailReport">✉️ Email report</button></div>';
+    document.getElementById("drViewReport").onclick=function(){ openSeoReport(b.last_report, b.id, b.name); };
+    document.getElementById("drEmailReport").onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.owner_name||b.name||b.domain||''}; document.getElementById("seoEmail").click(); };
+  } else { el.textContent='No audit yet — tap Run SEO audit.'; }
 }
 function openDrawer(id){
   currentId=id;
@@ -650,6 +701,16 @@ function openDrawer(id){
   document.getElementById("drMgrPhone").value=b.manager_phone||"";
   document.getElementById("drMgrEmail").value=b.manager_email||"";
   document.getElementById("drAlliance").value=b.alliance_status||"";
+  document.getElementById("drVoiceAi").value=b.voice_ai||"";
+  document.getElementById("drVoiceProvider").value=b.voice_ai_provider||"";
+  document.getElementById("drVoiceMonthly").value=b.voice_ai_monthly||"";
+  document.getElementById("drVoicePermin").value=b.voice_ai_permin||"";
+  document.getElementById("drVoiceSetup").value=b.voice_ai_setup||"";
+  document.getElementById("drVoiceAiDetails").style.display=(b.voice_ai==='yes')?'block':'none';
+  document.getElementById("drCc").value=b.cc_processing||"";
+  document.getElementById("drCcCompany").value=b.cc_company||"";
+  document.getElementById("drCcRate").value=b.cc_rate||"";
+  document.getElementById("drCcDetails").style.display=(b.cc_processing==='yes')?'block':'none';
   renderSeo(b);
   document.getElementById("drNotes").value=b.notes||"";
   document.getElementById("drSaved").textContent="";
@@ -690,6 +751,14 @@ document.getElementById("drSave").onclick=async function(){
     manager_phone:document.getElementById("drMgrPhone").value.trim(),
     manager_email:document.getElementById("drMgrEmail").value.trim(),
     alliance_status:document.getElementById("drAlliance").value,
+    voice_ai:document.getElementById("drVoiceAi").value,
+    voice_ai_provider:document.getElementById("drVoiceProvider").value.trim(),
+    voice_ai_monthly:document.getElementById("drVoiceMonthly").value.trim(),
+    voice_ai_permin:document.getElementById("drVoicePermin").value.trim(),
+    voice_ai_setup:document.getElementById("drVoiceSetup").value,
+    cc_processing:document.getElementById("drCc").value,
+    cc_company:document.getElementById("drCcCompany").value.trim(),
+    cc_rate:document.getElementById("drCcRate").value.trim(),
     notes:document.getElementById("drNotes").value.trim(),
     lat:b.lat,lng:b.lng};
   var saved=await guard(api("/api/shops/"+b.id,{method:"PUT",body:upd}),"Save failed");
@@ -728,6 +797,62 @@ document.getElementById("drRunSeo").onclick=async function(){
     Object.assign(b,saved);
     renderSeo(b); toast("Audit saved — Grade "+sc.grade+" ("+sc.score+"/100)");
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
+};
+/* ---------- SEO report modal (header tool + drawer viewer) ---------- */
+var seoState={report:null,shopId:null,name:''};
+function seoOpen(){ document.getElementById("seoModal").classList.add("open"); }
+function seoCloseFn(){ document.getElementById("seoModal").classList.remove("open"); }
+document.getElementById("seoClose").onclick=seoCloseFn;
+document.getElementById("btnSeoTool").onclick=function(){
+  seoState={report:null,shopId:null,name:''};
+  document.getElementById("seoTitle").textContent="SEO & AI Search Report";
+  document.getElementById("seoToolBar").style.display="flex";
+  document.getElementById("seoUrl").value="";
+  document.getElementById("seoBody").innerHTML='<div class="hint" style="color:#64748b">Enter a website above and tap <b>Run audit</b>.</div>';
+  document.getElementById("seoAddCrm").style.display="inline-block";
+  seoOpen(); setTimeout(function(){document.getElementById("seoUrl").focus();},80);
+};
+document.getElementById("seoRun").onclick=async function(){
+  if(!window.SEO){toast("SEO engine still loading");return;}
+  var url=document.getElementById("seoUrl").value.trim(); if(!url){toast("Enter a website");return;}
+  document.getElementById("seoBody").innerHTML='<div class="hint" style="color:#64748b">Auditing '+url+'… this can take ~30s.</div>';
+  try{ var r=await SEO.audit(url,{psiKey:window.__PSI||""}); seoState.report=r; seoState.name=r.domain; document.getElementById("seoBody").innerHTML=SEO.reportHTML(r); }
+  catch(e){ document.getElementById("seoBody").innerHTML='<div style="color:#dc2626">Audit failed — the site may block automated access, or the URL is invalid.</div>'; }
+};
+function openSeoReport(r, shopId, name){
+  seoState={report:r,shopId:shopId||null,name:name||(r&&r.domain)||''};
+  document.getElementById("seoTitle").textContent="SEO Report — "+(name||(r&&r.domain)||"");
+  document.getElementById("seoToolBar").style.display="none";
+  document.getElementById("seoBody").innerHTML=SEO.reportHTML(r);
+  document.getElementById("seoAddCrm").style.display= shopId?"none":"inline-block";
+  seoOpen();
+}
+document.getElementById("seoPrint").onclick=function(){
+  if(!seoState.report){toast("Run a report first");return;}
+  var w=window.open('','_blank'); if(!w){toast("Allow pop-ups to print");return;}
+  w.document.write('<html><head><title>SEO Report — '+ (seoState.report.domain||'') +'</title><meta charset="utf-8"><style>body{font-family:Inter,Arial,sans-serif;margin:24px;color:#0f172a}</style></head><body>'+SEO.reportHTML(seoState.report)+'<'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
+  w.document.close();
+};
+document.getElementById("seoEmail").onclick=async function(){
+  if(!seoState.report){toast("Run a report first");return;}
+  var to=prompt("Email the report to:", ""); if(!to)return; to=to.trim(); if(!/.+@.+\..+/.test(to)){toast("Enter a valid email");return;}
+  var r=seoState.report;
+  try{
+    var res=await fetch("/api/send-report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:to,subject:"Website audit for "+r.domain+" — Grade "+SEO.score(r).grade,html:SEO.emailHTML(seoState.name,r),text:SEO.emailText(seoState.name,r)})});
+    if(res.ok){toast("Report emailed to "+to+" ✓");}
+    else{ var d=await res.json().catch(function(){return {};}); toast("Email failed"+(d.error?(": "+d.error):"")+(d.detail?(" — "+(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail))):"")); }
+  }catch(e){ toast("Email failed — network error"); }
+};
+document.getElementById("seoAddCrm").onclick=async function(){
+  var r=seoState.report; if(!r){toast("Run a report first");return;}
+  try{
+    var b=await guard(api("/api/shops",{method:"POST",body:{market:state.market,name:r.domain,web:r.url,category:"other",lat:null,lng:null}}),"Add failed");
+    var sc=SEO.score(r);
+    await guard(api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:r,score:sc.score,grade:sc.grade}}),"Attach failed");
+    Object.assign(b,{last_report:r,latest_grade:sc.grade,latest_score:sc.score,last_audit_at:new Date().toISOString()});
+    state.businesses.push(b); if(typeof renderList==='function')renderList();
+    toast('"'+r.domain+'" added to CRM ✓'); seoCloseFn(); openDrawer(b.id);
+  }catch(e){}
 };
 document.getElementById("vLog").onclick=async function(){
   var b=getBiz(currentId);if(!b)return;

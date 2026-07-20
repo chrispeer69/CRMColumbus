@@ -3,6 +3,8 @@
    Exposes window.SEO = { audit, score, findingsHTML }. Browser-only (uses DOMParser/fetch). */
 (function(){
 'use strict';
+const BRAND={ name:'Blue Collar AI, Inc.', tagline:'AI-Powered Local SEO', web:'www.bluecollarai.online', reportPrice:'$49',
+  contacts:[{name:'Chris',phone:'614-633-7935',email:'chris@bluecollarai.online'},{name:'Dustin',phone:'614-206-3606',email:'dustin@bluecollarai.online'}] };
 const PROXIES = [
   { name:'self',           build:u=>`/api/proxy?url=${encodeURIComponent(u)}`, json:false },
   { name:'allorigins-raw', build:u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`, json:false },
@@ -202,7 +204,37 @@ function score(r){
   const s= total? Math.round(100*earned/total):0;
   let grade,color;
   if(s>=90){grade='A';color='#16a34a';} else if(s>=80){grade='B';color='#65a30d';} else if(s>=70){grade='C';color='#f59e0b';} else if(s>=55){grade='D';color='#f97316';} else {grade='F';color='#dc2626';}
-  return {score:s,grade,color,counts,byCat,scored};
+  const verdict = s>=90?'Strong SEO foundation with only minor polish needed.' : s>=80?'Solid, but a handful of fixes would meaningfully improve visibility.' : s>=70?'Several important gaps are holding this site back in search.' : s>=55?'Significant SEO problems are limiting how often this site is found.' : 'Major SEO issues — the site is likely losing substantial search traffic.';
+  return {score:s,grade,color,counts,byCat,verdict,scored};
+}
+function reportHTML(r){
+  if(!r||r.error) return '<p style="color:#dc2626">Report unavailable.</p>';
+  const sc=score(r); const col=sc.color;
+  const issues=r.checks.filter(c=>c.status==='fail'||c.status==='warn').sort((a,b)=>a.status===b.status?b.points-a.points:(a.status==='fail'?-1:1));
+  const quick=issues.filter(c=>isQuick(c.label)), proj=issues.filter(c=>!isQuick(c.label));
+  const passes=r.checks.filter(c=>c.status==='pass');
+  const cats=Object.keys(sc.byCat);
+  const F="font-family:'Inter',system-ui,Arial,sans-serif;color:#0f172a";
+  const card=c=>{const scol=c.status==='fail'?'#dc2626':'#f59e0b';return '<div style="border:1px solid #e2e8f0;border-left:5px solid '+scol+';border-radius:6px;padding:12px 14px;margin:0 0 10px"><div style="font-weight:800">'+esc(c.label)+'</div>'+(c.detail?'<div style="font-size:13px;color:#475569;margin-top:3px"><b>Now:</b> '+esc(c.detail)+'</div>':'')+(c.why?'<div style="font-size:13px;color:#475569;margin-top:3px"><b>Why:</b> '+esc(c.why)+'</div>':'')+(c.fix?'<div style="font-size:13px;margin-top:3px"><b>Fix:</b> '+esc(c.fix)+'</div>':'')+'</div>';};
+  let speed='';
+  if(r.speed&&((r.speed.mobile&&!r.speed.mobile.error)||(r.speed.desktop&&!r.speed.desktop.error))){
+    const m=r.speed.mobile,d=r.speed.desktop;
+    const chip=(l,s)=>{ if(!s||s.error||s.score==null)return ''; const c=s.score>=90?'#16a34a':s.score>=50?'#ea580c':'#dc2626'; return '<span style="display:inline-block;margin-right:20px"><b style="font-size:26px;color:'+c+'">'+s.score+'</b><span style="color:#64748b">/100 '+l+'</span></span>'; };
+    speed='<h3 style="margin:22px 0 8px;font-size:15px">Page Speed — live Google data</h3><div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px">'+chip('Mobile',m)+chip('Desktop',d)+'<div style="color:#7f1d1d;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 10px;margin-top:10px;font-size:13px">Slow pages bounce customers to competitors and rank lower in Google.</div></div>';
+  }
+  return '<div style="'+F+';max-width:760px;margin:0 auto">'
+    +'<div style="border:2px solid '+col+';border-radius:10px;padding:18px 20px;margin-bottom:16px">'
+      +'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b">Executive summary — '+esc(r.domain)+'</div>'
+      +'<div style="font-size:30px;font-weight:800;color:'+col+'">'+sc.score+'/100 · Grade '+sc.grade+'</div>'
+      +'<div style="font-size:14px;color:#334155;margin-top:4px">'+esc(sc.verdict||'')+'</div>'
+      +'<div style="font-size:13px;margin-top:6px"><b style="color:#16a34a">'+sc.counts.pass+'</b> passing · <b style="color:#b45309">'+sc.counts.warn+'</b> to improve · <b style="color:#b91c1c">'+sc.counts.fail+'</b> critical</div>'
+    +'</div>'+speed
+    +'<h3 style="margin:22px 0 8px;font-size:15px">Category breakdown</h3>'
+    +cats.map(cat=>{const p=Math.round(100*sc.byCat[cat].e/sc.byCat[cat].t);const c=p>=80?'#16a34a':p>=60?'#f59e0b':'#dc2626';return '<div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:13px"><span style="flex:0 0 180px;color:#475569">'+esc(cat)+'</span><span style="flex:1;height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden"><span style="display:block;height:100%;width:'+p+'%;background:'+c+'"></span></span><span style="flex:0 0 40px;text-align:right;font-weight:700;color:'+c+'">'+p+'%</span></div>';}).join('')
+    +(quick.length?'<h3 style="margin:22px 0 8px;font-size:15px">Quick wins</h3>'+quick.map(card).join(''):'')
+    +(proj.length?'<h3 style="margin:22px 0 8px;font-size:15px">Bigger projects</h3>'+proj.map(card).join(''):'')
+    +'<h3 style="margin:22px 0 8px;font-size:15px">What\'s working ('+passes.length+')</h3><div style="font-size:13px;color:#334155;line-height:1.7">'+passes.map(c=>'✓ '+esc(c.label)).join('<br>')+'</div>'
+  +'</div>';
 }
 function findingsHTML(r){
   if(!r||r.error) return '<p style="color:#dc2626">Audit unavailable.</p>';
@@ -216,6 +248,31 @@ function findingsHTML(r){
     ${issues.length?`<ul style="margin:0;padding-left:18px;font-size:13px">${rows}</ul>`:'<div style="color:#16a34a">No major issues found.</div>'}
   </div>`;
 }
+function emailHTML(clientName,r){
+  const sc=score(r); const col=sc.score>=91?'#16a34a':sc.score>=80?'#ea580c':'#dc2626';
+  const issues=r.checks.filter(c=>c.status==='fail'||c.status==='warn').sort((a,b)=>a.status===b.status?b.points-a.points:(a.status==='fail'?-1:1));
+  const quick=issues.filter(c=>isQuick(c.label)).slice(0,8), proj=issues.filter(c=>!isQuick(c.label)).slice(0,6);
+  const li=list=>list.map(c=>'<li style="margin:6px 0"><b>'+esc(c.label)+'</b>'+(c.fix?'<br><span style="color:#475569">'+esc(c.fix)+'</span>':'')+'</li>').join('');
+  const contacts=BRAND.contacts.map(c=>esc(c.name)+' · '+esc(c.phone)+' · '+esc(c.email)).join('<br>');
+  const F="font-family:'Helvetica Neue',Arial,sans-serif;color:#0f172a";
+  return '<div style="'+F+';max-width:640px;margin:0 auto;padding:8px">'
+    +'<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px"><div style="font-size:22px;font-weight:800">SEO &amp; AI Search Audit</div><div style="color:#64748b;font-size:13px">'+esc(BRAND.name)+' · '+esc(BRAND.tagline)+'</div></div>'
+    +(clientName?'<p style="font-size:15px">Hi '+esc(clientName)+',</p>':'')
+    +'<p style="font-size:15px;line-height:1.6">We audited your website across Google SEO and AI search (ChatGPT, Google AI Overviews, Perplexity) — where customers now decide who to call. Here is where you stand and what it is costing you.</p>'
+    +'<div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 0 16px"><div style="background:'+col+';color:#fff;padding:16px 20px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+esc(r.domain)+' — Grade '+sc.grade+' · '+sc.score+'/100</div></div>'
+      +'<div style="padding:18px 20px"><div style="font-size:13px;color:#475569;margin-bottom:10px"><b style="color:#b91c1c">'+sc.counts.fail+' critical</b> · <b style="color:#b45309">'+sc.counts.warn+' to improve</b> · '+sc.counts.pass+' passing</div>'
+      +(quick.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Quick wins</div><ul style="margin:4px 0 12px;padding-left:18px;font-size:14px">'+li(quick)+'</ul>':'')
+      +(proj.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Bigger opportunities</div><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+li(proj)+'</ul>':'')+'</div></div>'
+    +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin-bottom:16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div><p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Every issue above is fixable, usually faster than you think. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the customer.</p><div style="font-weight:800">Reply or call for a free 15-minute walkthrough.</div><div style="margin-top:12px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
+    +'<p style="color:#94a3b8;font-size:12px">'+esc(BRAND.name)+' · '+esc(BRAND.web)+'</p></div>';
+}
+function emailText(clientName,r){
+  const sc=score(r); let t=(clientName?('Hi '+clientName+',\n\n'):'Hi,\n\n');
+  t+='We audited your website across Google SEO and AI search. '+r.domain+' — Grade '+sc.grade+' ('+sc.score+'/100): '+sc.counts.fail+' critical, '+sc.counts.warn+' to improve, '+sc.counts.pass+' passing.\n\n';
+  r.checks.filter(c=>c.status==='fail'||c.status==='warn').slice(0,10).forEach(c=>{ t+='  - '+c.label+(c.fix?': '+c.fix:'')+'\n'; });
+  t+='\nEvery issue is fixable — usually faster than you think. Reply or call for a free 15-minute walkthrough.\n'+BRAND.contacts.map(c=>c.name+' · '+c.phone+' · '+c.email).join('\n')+'\n'+BRAND.web+'\n';
+  return t;
+}
 async function audit(url, opts){
   opts=opts||{};
   const r=await auditOne(url);
@@ -223,5 +280,5 @@ async function audit(url, opts){
   if(opts.speed!==false){ try{ await addSpeed(r, opts.psiKey||''); }catch(e){} }
   return r;
 }
-window.SEO = { audit, score, findingsHTML };
+window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, BRAND };
 })();
