@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#10151b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Field CRM</title>
+<title>Blue Collar AI CRM</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -167,7 +167,7 @@
 <body>
 
 <header>
-  <h1>Field <span>CRM</span></h1>
+  <h1>Blue Collar AI <span>CRM</span></h1>
   <select class="mkt" id="mktSel" title="Market"></select>
   <button class="btn small" id="btnAddCity" title="Add a city">＋ City</button>
   <div class="spacer"></div>
@@ -788,7 +788,13 @@ function openDrawer(id){
   document.getElementById("vNotes").value="";
   renderHistory(b);
   document.getElementById("drawer").classList.add("open");
+  // Push a history entry so the browser Back button closes the company and returns to the list
+  // (instead of navigating out of the app / back to login).
+  if(!drawerPushed){ try{ history.pushState({dr:1},""); }catch(e){} drawerPushed=true; }
 }
+var drawerPushed=false;
+function closeDrawer(){ document.getElementById("drawer").classList.remove("open"); drawerPushed=false; }
+window.addEventListener("popstate",function(){ if(document.getElementById("drawer").classList.contains("open")) closeDrawer(); });
 function renderHistory(b){
   var h=document.getElementById("drHistory");
   if(!b.visits.length){h.innerHTML='<div class="hint">No visits logged yet.</div>';return;}
@@ -801,7 +807,7 @@ function renderHistory(b){
       +(v.notes?'<div class="vn">'+esc(v.notes)+'</div>':'')+'</div>';
   }).join("");
 }
-document.getElementById("drClose").onclick=function(){document.getElementById("drawer").classList.remove("open");};
+document.getElementById("drClose").onclick=function(){ if(drawerPushed) history.back(); else closeDrawer(); };
 document.getElementById("drSave").onclick=async function(){
   var b=getBiz(currentId);if(!b)return;
   var upd={name:document.getElementById("drBizName").value.trim()||b.name,
@@ -1002,7 +1008,7 @@ document.getElementById("drDelete").onclick=async function(){
   await guard(api("/api/shops/"+b.id,{method:"DELETE"}),"Delete failed");
   state.businesses=state.businesses.filter(function(x){return x.id!==b.id;});
   if(markers[b.id]){map.removeLayer(markers[b.id]);delete markers[b.id];}
-  document.getElementById("drawer").classList.remove("open");
+  if(drawerPushed) history.back(); else closeDrawer();
   renderList();renderCounts();
   toast("Shop deleted");
 };
@@ -1360,7 +1366,7 @@ document.getElementById("expToday").onclick=function(){
 
 /* ---------- logout ---------- */
 document.getElementById("btnLogout").onclick=async function(){
-  if(!confirm("Sign out of Field CRM?"))return;
+  if(!confirm("Sign out of Blue Collar AI CRM?"))return;
   try{await api("/api/logout",{method:"POST"});}catch(e){}
   location.href="/login.html";
 };
