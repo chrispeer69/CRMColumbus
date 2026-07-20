@@ -361,7 +361,12 @@ app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process
 async function sendEmail({ to, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, error: 'email_not_configured' };
-  const from = process.env.MAIL_FROM || 'Blue Collar AI <onboarding@resend.dev>';
+  // Ensure the sender shows a friendly display name ("Blue Collar AI"), not a bare address,
+  // regardless of how MAIL_FROM is set. Resend expects the format: Name <address>.
+  let from = (process.env.MAIL_FROM || 'reports@towgrade.com').trim();
+  const lt = from.indexOf('<');
+  const hasName = lt > 0 && from.slice(0, lt).trim().length > 0;
+  if (!hasName) { const addr = from.replace(/[<>]/g, '').trim(); from = 'Blue Collar AI <' + addr + '>'; }
   try {
     const body = { from, to: Array.isArray(to) ? to : [to], subject, html }; if (text) body.text = text;
     const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
