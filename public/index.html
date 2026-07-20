@@ -226,6 +226,10 @@
         <option value="other">Other</option>
       </select>
     </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px">
+      <button class="btn primary" id="btnAuditAll">⚡ Audit all in this market</button>
+      <span class="hint" id="auditAllStatus"></span>
+    </div>
     <div id="listItems"></div>
   </div>
 
@@ -512,6 +516,15 @@ function flags(b){
   return {visited:v, met:b.visits.some(function(x){return x.met;}), sale:b.visits.some(function(x){return x.sale;}), due:!!due};
 }
 function pinColor(b){var f=flags(b);return f.due?FOLLOW_COLOR : f.visited?VISITED_COLOR : (CAT_COLOR[b.category]||CAT_COLOR.other);}
+// SEO/AI Search score → traffic-light color (90+ green, 80-89 tan, 70-79 orange, <70 red)
+function scoreColor(s){ if(s==null)return '#94a3b8'; if(s>=90)return '#2FBF71'; if(s>=80)return '#C6A15B'; if(s>=70)return '#FB8C00'; return '#EF5350'; }
+function scoreChipHTML(b){
+  var s=b.latest_score;
+  if(s==null) return '<span class="tag" style="background:#e2e8f0;color:#475569">Not audited</span>';
+  var col=scoreColor(s);
+  var when=b.last_audit_at?(' · '+new Date(b.last_audit_at).toLocaleDateString()):'';
+  return '<span class="tag" style="background:'+col+';color:#fff;font-weight:800">SEO/AI '+(b.latest_grade||'')+' '+s+when+'</span>';
+}
 
 /* ---------- map ---------- */
 var map=L.map("map",{zoomControl:false}).setView([39.9829,-82.9855],11);
@@ -855,7 +868,7 @@ document.getElementById("drRunSeo").onclick=async function(){
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
 };
 /* ---------- Prospect worklist ---------- */
-var wlRows=[];
+var wlRows=[]; var wlNote='';
 document.getElementById("btnWorklist").onclick=function(){ document.getElementById("wlModal").classList.add("open"); wlSearch(); };
 document.getElementById("wlClose").onclick=function(){ document.getElementById("wlModal").classList.remove("open"); };
 async function wlSearch(){
@@ -867,7 +880,9 @@ async function wlSearch(){
   var allGrades=grades.length===5, ungraded=document.getElementById("wlUngraded").checked;
   var city=(document.getElementById("wlCity").value||'').trim(); var radius=parseFloat(document.getElementById("wlRadius").value)||0;
   var center=null;
-  if(city&&radius>0){ try{ var g=await api("/api/geocode?q="+encodeURIComponent(city)); if(g&&g.found) center=[g.lat,g.lng]; }catch(e){} if(!center) toast("Could not locate that city (set a Maps key)."); }
+  var geoFail=false;
+  if(city&&radius>0){ try{ var g=await api("/api/geocode?q="+encodeURIComponent(city)); if(g&&g.found) center=[g.lat,g.lng]; }catch(e){} if(!center){ geoFail=true; toast("Could not locate \""+city+"\" — showing all matches instead."); } }
+  var noCoord=0;
   var rows=(state.businesses||[]).filter(function(b){
     if(kw && (b.name||'').toLowerCase().indexOf(kw)<0) return false;
     if(ind && (b.industry||'').toLowerCase().indexOf(ind)<0) return false;
@@ -875,17 +890,19 @@ async function wlSearch(){
     if(alliance==='none' && b.alliance_status) return false;
     if(alliance==='member' && !(b.alliance_status==='basic'||b.alliance_status==='elite')) return false;
     if(!allGrades){ var gr=b.latest_grade; if(gr){ if(grades.indexOf(gr)<0) return false; } else if(!ungraded) return false; }
-    if(center){ if(b.lat==null||b.lng==null) return false; if(distMi(center,[b.lat,b.lng])>radius) return false; }
+    // Radius: only excludes shops that HAVE coordinates and fall outside. Coordless (e.g. imported) shops are kept so the list is never wrongly empty.
+    if(center){ if(b.lat==null||b.lng==null){ noCoord++; } else if(distMi(center,[b.lat,b.lng])>radius) return false; }
     return true;
   });
+  wlNote = center ? ('Within '+radius+' mi of '+city+(noCoord?(' · '+noCoord+' without a mapped location shown too — geocode them by opening + Save'):'')) : (geoFail?'Location lookup unavailable — showing all matches':'');
   var gv={F:0,D:1,C:2,B:3,A:4};
   rows.sort(function(a,c){ var ga=gv[a.latest_grade]!=null?gv[a.latest_grade]:5, gc=gv[c.latest_grade]!=null?gv[c.latest_grade]:5; return ga-gc || (a.name||'').localeCompare(c.name||''); });
   wlRows=rows; renderWlResults();
 }
 function renderWlResults(){
   var el=document.getElementById("wlResults");
-  if(!wlRows.length){ el.innerHTML='<div class="hint">No matches.</div>'; return; }
-  el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first)</div>'+wlRows.map(function(b){
+  if(!wlRows.length){ el.innerHTML='<div class="hint">No matches.'+(wlNote?(' '+esc(wlNote)):'')+'</div>'; return; }
+  el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first)'+(wlNote?(' — '+esc(wlNote)):'')+'</div>'+wlRows.map(function(b){
     var g=b.latest_grade||'—'; var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">'
       +'<div style="min-width:0"><div style="font-weight:700">'+esc(b.name)+'</div><div class="hint" style="font-size:12px">'+esc(b.industry||CAT_LABEL[b.category]||b.category)+(b.address?' · '+esc(b.address):'')+'</div></div>'
@@ -1194,7 +1211,7 @@ function renderList(){
       +'<span class="pin" style="background:'+pinColor(b)+'"></span>'
       +'<div class="body"><div class="name">'+esc(b.name)+'</div>'
       +'<div class="meta">'+esc(b.address)+(b.phone?' · '+esc(b.phone):'')+'</div>'
-      +'<div class="tags"><span class="tag cat-'+(CAT_LABEL[b.category]?b.category:"other")+'">'+esc(CAT_LABEL[b.category]||b.category)+'</span>'
+      +'<div class="tags">'+scoreChipHTML(b)+'<span class="tag cat-'+(CAT_LABEL[b.category]?b.category:"other")+'">'+esc(CAT_LABEL[b.category]||b.category)+'</span>'
       +(f.due?'<span class="tag due">Follow-up due</span>':'')
       +'<span class="tag '+(f.visited?'yes':'no')+'">'+(f.visited?'Visited':'Not visited')+'</span>'
       +'<span class="tag '+(f.met?'yes':'no')+'">'+(f.met?'Met owner':'No meet')+'</span>'
@@ -1204,6 +1221,52 @@ function renderList(){
   }).join("");
 }
 ["fSearch","fStatus","fCat"].forEach(function(id){document.getElementById(id).addEventListener("input",renderList);});
+
+/* ---------- bulk audit: run SEO audits for every shop in the current market ---------- */
+var bulkRunning=false;
+document.getElementById("btnAuditAll").onclick=function(){
+  if(bulkRunning){ bulkRunning=false; return; } // second click = stop
+  if(!window.SEO){ toast("SEO engine still loading — try again in a moment"); return; }
+  var shops=(state.businesses||[]).slice();
+  if(!shops.length){ toast("No companies loaded for this market."); return; }
+  if(!confirm("Run SEO/AI audits for all "+shops.length+" companies in this market?\n\nThis runs live crawls (~20-30s each) and can take a while. You can keep working; progress shows here and scores fill in live. Click the button again to stop.")) return;
+  runBulkAudit(shops);
+};
+async function runBulkAudit(shops){
+  var status=document.getElementById("auditAllStatus");
+  var btn=document.getElementById("btnAuditAll");
+  var total=shops.length, done=0, ok=0, noWeb=0, failed=0, i=0;
+  bulkRunning=true; btn.textContent="■ Stop audits"; btn.classList.remove("primary");
+  function upd(cur){ status.textContent="Audited "+done+"/"+total+" · "+ok+" scored · "+noWeb+" no website · "+failed+" failed"+(cur?(" · now: "+cur):""); }
+  upd("");
+  async function worker(){
+    while(bulkRunning){
+      var idx=i++; if(idx>=shops.length) return;
+      var b=shops[idx];
+      var url=(b.web||'').trim();
+      if(!url){ // try to find the website via Google Places so we can still audit it
+        try{ var q=b.name+' '+(b.address||b.zip||''); var pl=await api("/api/places?q="+encodeURIComponent(q)); if(pl&&pl.website){ url=pl.website; b.web=url; } }catch(e){}
+      }
+      if(!url){ noWeb++; done++; upd(""); continue; }
+      upd(b.name);
+      try{
+        var r=await SEO.audit(url,{psiKey:window.__PSI||""});
+        var sc=SEO.score(r);
+        await api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:r,score:sc.score,grade:sc.grade}});
+        Object.assign(b,{last_report:r,latest_grade:sc.grade,latest_score:sc.score,last_audit_at:new Date().toISOString()});
+        ok++; renderList();
+      }catch(e){ failed++; }
+      done++; upd("");
+    }
+  }
+  var pool=[]; for(var w=0; w<4; w++) pool.push(worker());
+  await Promise.all(pool);
+  var stopped=bulkRunning===false && done<total;
+  bulkRunning=false; btn.textContent="⚡ Audit all in this market"; btn.classList.add("primary");
+  status.textContent=(stopped?"Stopped — ":"Done — ")+ok+" scored, "+noWeb+" had no website, "+failed+" failed, of "+total+" companies.";
+  toast("Bulk audit "+(stopped?"stopped":"complete")+": "+ok+" scored");
+  renderList();
+}
 
 /* ---------- tabs ---------- */
 var TABS={map:"tabMap",list:"tabList",add:"tabAdd",docs:"tabDocs"};

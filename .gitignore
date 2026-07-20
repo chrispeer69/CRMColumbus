@@ -1,3 +1,4 @@
 node_modules/
 .env
 *.log
+_audit_test.js
