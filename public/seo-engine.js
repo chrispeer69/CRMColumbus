@@ -252,33 +252,63 @@ function findingsHTML(r){
     ${issues.length?`<ul style="margin:0;padding-left:18px;font-size:13px">${rows}</ul>`:'<div style="color:#16a34a">No major issues found.</div>'}
   </div>`;
 }
+// Solicitation email = the REPORT SNAPSHOT (executive summary + live page speed + category breakdown)
+// with sales verbiage. Deliberately NO issue list and NO fixes — the category bars show weak areas;
+// the exact step-by-step fixes are the paid deliverable.
 function emailHTML(clientName,r,opts){
   opts=opts||{};
-  const sc=score(r); const col=sc.score>=91?'#16a34a':sc.score>=80?'#ea580c':'#dc2626';
-  const issues=r.checks.filter(c=>c.status==='fail'||c.status==='warn').sort((a,b)=>a.status===b.status?b.points-a.points:(a.status==='fail'?-1:1));
-  const quick=issues.filter(c=>isQuick(c.label)).slice(0,8), proj=issues.filter(c=>!isQuick(c.label)).slice(0,6);
-  const li=list=>list.map(c=>'<li style="margin:5px 0">'+esc(c.label)+'</li>').join('');
+  const sc=score(r); const col=sc.color; const cats=Object.keys(sc.byCat);
   const contacts=BRAND.contacts.map(c=>esc(c.name)+' · '+esc(c.phone)+' · '+esc(c.email)).join('<br>');
   const F="font-family:'Helvetica Neue',Arial,sans-serif;color:#0f172a";
+  // Live Page Speed — big number(s) + loss callout (only if we measured it)
+  let speed='';
+  if(r.speed&&((r.speed.mobile&&!r.speed.mobile.error&&r.speed.mobile.score!=null)||(r.speed.desktop&&!r.speed.desktop.error&&r.speed.desktop.score!=null))){
+    const chip=(l,s)=>{ if(!s||s.error||s.score==null)return ''; const c=s.score>=90?'#16a34a':s.score>=50?'#ea580c':'#dc2626'; return '<span style="display:inline-block;margin-right:22px"><b style="font-size:28px;color:'+c+'">'+s.score+'</b><span style="color:#64748b">/100 '+l+'</span></span>'; };
+    speed='<h3 style="margin:22px 0 8px;font-size:15px">Page Speed — live Google data</h3>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px">'+chip('Mobile',r.speed.mobile)+chip('Desktop',r.speed.desktop)
+      +'<div style="color:#7f1d1d;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 10px;margin-top:10px;font-size:13px">Slow pages bounce customers to competitors and rank lower in Google.</div></div>';
+  }
+  // Category breakdown — table-based bars (robust across email clients)
+  const catRows=cats.map(cat=>{
+    const p=Math.round(100*sc.byCat[cat].e/sc.byCat[cat].t); const c=p>=80?'#16a34a':p>=60?'#f59e0b':'#dc2626';
+    return '<tr>'
+      +'<td style="color:#475569;padding:4px 10px 4px 0;font-size:13px;white-space:nowrap;vertical-align:middle">'+esc(cat)+'</td>'
+      +'<td style="padding:4px 0;vertical-align:middle;width:100%"><table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;background:#e2e8f0;border-radius:999px"><tr>'
+        +'<td style="height:10px;background:'+c+';border-radius:999px;font-size:0;line-height:0;width:'+p+'%">&nbsp;</td>'+(p<100?'<td style="font-size:0;line-height:0">&nbsp;</td>':'')
+      +'</tr></table></td>'
+      +'<td style="text-align:right;font-weight:700;color:'+c+';padding:4px 0 4px 10px;font-size:13px;white-space:nowrap;vertical-align:middle">'+p+'%</td>'
+    +'</tr>';
+  }).join('');
+  const breakdown='<h3 style="margin:22px 0 8px;font-size:15px">Category breakdown</h3><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">'+catRows+'</table>';
+  const buyBtn=opts.buyUrl?'<div style="margin-top:12px"><a href="'+opts.buyUrl+'" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;padding:10px 18px;border-radius:6px">Get the full report — $'+((BRAND.reportPrice||'$49').replace(/[^0-9]/g,'')||'49')+' (DIY)</a></div>':'';
   return '<div style="'+F+';max-width:640px;margin:0 auto;padding:8px">'
     +'<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px"><div style="font-size:22px;font-weight:800">SEO &amp; AI Search Audit</div><div style="color:#64748b;font-size:13px">'+esc(BRAND.name)+' · '+esc(BRAND.tagline)+'</div></div>'
     +(clientName?'<p style="font-size:15px">Hi '+esc(clientName)+',</p>':'')
     +'<p style="font-size:15px;line-height:1.6">We audited your website across Google SEO and AI search (ChatGPT, Google AI Overviews, Perplexity) — where customers now decide who to call. Here is where you stand and what it is costing you.</p>'
-    +'<div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 0 16px"><div style="background:'+col+';color:#fff;padding:16px 20px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+esc(r.domain)+' — Grade '+sc.grade+' · '+sc.score+'/100</div></div>'
-      +'<div style="padding:18px 20px"><div style="font-size:13px;color:#475569;margin-bottom:10px"><b style="color:#b91c1c">'+sc.counts.fail+' critical</b> · <b style="color:#b45309">'+sc.counts.warn+' to improve</b> · '+sc.counts.pass+' passing</div>'
-      +(quick.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Quick wins</div><ul style="margin:4px 0 12px;padding-left:18px;font-size:14px">'+li(quick)+'</ul>':'')
-      +(proj.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Bigger opportunities</div><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+li(proj)+'</ul>':'')
-      +'<div style="font-size:13px;color:#64748b;margin-top:12px;border-top:1px solid #eef2f7;padding-top:10px">Every issue above is fixable — the <b>full report includes the exact step-by-step fix for each one</b>.</div>'+'</div></div>'
-    +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin-bottom:16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div><p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Every issue above is fixable, usually faster than you think. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the customer.</p><div style="font-weight:800;margin-bottom:10px">Two ways to fix it:</div>'
-      +'<div style="margin-bottom:10px">Reply or call for a <b>free 15-minute walkthrough</b>.'+(opts.buyUrl?' &nbsp;— or —&nbsp; <a href="'+opts.buyUrl+'" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;padding:9px 16px;border-radius:6px;margin-top:6px">Get the full report — $'+((BRAND.reportPrice||'$49').replace(/[^0-9]/g,'')||'49')+' (DIY)</a>':'')+'</div>'
-      +'<div style="margin-top:8px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
+    // Executive summary card (outlined in grade color)
+    +'<div style="border:2px solid '+col+';border-radius:10px;padding:18px 20px;margin:0 0 16px">'
+      +'<div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b">Executive summary — '+esc(r.domain)+'</div>'
+      +'<div style="font-size:30px;font-weight:800;color:'+col+';margin-top:2px">'+sc.score+'/100 · Grade '+sc.grade+'</div>'
+      +'<div style="font-size:14px;color:#334155;margin-top:4px">'+esc(sc.verdict||'')+'</div>'
+      +'<div style="font-size:13px;margin-top:6px"><b style="color:#16a34a">'+sc.counts.pass+'</b> passing · <b style="color:#b45309">'+sc.counts.warn+'</b> to improve · <b style="color:#b91c1c">'+sc.counts.fail+'</b> critical</div>'
+    +'</div>'
+    +speed
+    +breakdown
+    // Sales CTA
+    +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin:20px 0 16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div>'
+      +'<p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Your weakest areas above are quietly sending customers to competitors. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the call. Every one of these is fixable, usually faster than you think.</p>'
+      +'<div style="margin-bottom:6px">Reply or call for a <b>free 15-minute walkthrough</b> and we will show you the plan.</div>'+buyBtn
+      +'<div style="margin-top:14px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
     +'<p style="color:#94a3b8;font-size:12px">'+esc(BRAND.name)+' · '+esc(BRAND.web)+'</p></div>';
 }
 function emailText(clientName,r){
   const sc=score(r); let t=(clientName?('Hi '+clientName+',\n\n'):'Hi,\n\n');
-  t+='We audited your website across Google SEO and AI search. '+r.domain+' — Grade '+sc.grade+' ('+sc.score+'/100): '+sc.counts.fail+' critical, '+sc.counts.warn+' to improve, '+sc.counts.pass+' passing.\n\n';
-  r.checks.filter(c=>c.status==='fail'||c.status==='warn').slice(0,10).forEach(c=>{ t+='  - '+c.label+'\n'; });
-  t+='\nEvery issue is fixable — the full report includes the exact step-by-step fix for each. Reply or call for a free 15-minute walkthrough.\n'+BRAND.contacts.map(c=>c.name+' · '+c.phone+' · '+c.email).join('\n')+'\n'+BRAND.web+'\n';
+  t+='We audited your website across Google SEO and AI search (ChatGPT, Google AI Overviews, Perplexity) — where customers now decide who to call.\n\n';
+  t+='EXECUTIVE SUMMARY — '+r.domain+'\n'+sc.score+'/100 · Grade '+sc.grade+'\n'+(sc.verdict||'')+'\n'+sc.counts.pass+' passing · '+sc.counts.warn+' to improve · '+sc.counts.fail+' critical\n\n';
+  if(r.speed){ const m=r.speed.mobile,d=r.speed.desktop; const parts=[]; if(m&&!m.error&&m.score!=null)parts.push(m.score+'/100 Mobile'); if(d&&!d.error&&d.score!=null)parts.push(d.score+'/100 Desktop'); if(parts.length)t+='Page Speed (live Google data): '+parts.join(' · ')+'\nSlow pages bounce customers to competitors and rank lower in Google.\n\n'; }
+  const cats=Object.keys(sc.byCat);
+  if(cats.length){ t+='Category breakdown:\n'; cats.forEach(cat=>{ const p=Math.round(100*sc.byCat[cat].e/sc.byCat[cat].t); t+='  '+cat+': '+p+'%\n'; }); t+='\n'; }
+  t+='Your weakest areas above are sending customers to competitors — every one is fixable. Reply or call for a free 15-minute walkthrough and we will show you the plan.\n\n'+BRAND.contacts.map(c=>c.name+' · '+c.phone+' · '+c.email).join('\n')+'\n'+BRAND.web+'\n';
   return t;
 }
 async function audit(url, opts){
