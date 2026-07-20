@@ -248,7 +248,8 @@ function findingsHTML(r){
     ${issues.length?`<ul style="margin:0;padding-left:18px;font-size:13px">${rows}</ul>`:'<div style="color:#16a34a">No major issues found.</div>'}
   </div>`;
 }
-function emailHTML(clientName,r){
+function emailHTML(clientName,r,opts){
+  opts=opts||{};
   const sc=score(r); const col=sc.score>=91?'#16a34a':sc.score>=80?'#ea580c':'#dc2626';
   const issues=r.checks.filter(c=>c.status==='fail'||c.status==='warn').sort((a,b)=>a.status===b.status?b.points-a.points:(a.status==='fail'?-1:1));
   const quick=issues.filter(c=>isQuick(c.label)).slice(0,8), proj=issues.filter(c=>!isQuick(c.label)).slice(0,6);
@@ -263,7 +264,9 @@ function emailHTML(clientName,r){
       +'<div style="padding:18px 20px"><div style="font-size:13px;color:#475569;margin-bottom:10px"><b style="color:#b91c1c">'+sc.counts.fail+' critical</b> · <b style="color:#b45309">'+sc.counts.warn+' to improve</b> · '+sc.counts.pass+' passing</div>'
       +(quick.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Quick wins</div><ul style="margin:4px 0 12px;padding-left:18px;font-size:14px">'+li(quick)+'</ul>':'')
       +(proj.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Bigger opportunities</div><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+li(proj)+'</ul>':'')+'</div></div>'
-    +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin-bottom:16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div><p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Every issue above is fixable, usually faster than you think. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the customer.</p><div style="font-weight:800">Reply or call for a free 15-minute walkthrough.</div><div style="margin-top:12px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
+    +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin-bottom:16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div><p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Every issue above is fixable, usually faster than you think. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the customer.</p><div style="font-weight:800;margin-bottom:10px">Two ways to fix it:</div>'
+      +'<div style="margin-bottom:10px">Reply or call for a <b>free 15-minute walkthrough</b>.'+(opts.buyUrl?' &nbsp;— or —&nbsp; <a href="'+opts.buyUrl+'" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;padding:9px 16px;border-radius:6px;margin-top:6px">Get the full report — $'+((BRAND.reportPrice||'$49').replace(/[^0-9]/g,'')||'49')+' (DIY)</a>':'')+'</div>'
+      +'<div style="margin-top:8px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
     +'<p style="color:#94a3b8;font-size:12px">'+esc(BRAND.name)+' · '+esc(BRAND.web)+'</p></div>';
 }
 function emailText(clientName,r){

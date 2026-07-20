@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SEO &amp; AI Search Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="/seo-engine.js"></script>
+<style>
+  body{font-family:'Inter',Arial,sans-serif;margin:0;background:#f1f5f9;color:#0f172a;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:24px 16px 60px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:26px;box-shadow:0 4px 18px rgba(15,23,42,.06)}
+  .buy{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;padding:14px 28px;border-radius:8px;font-size:16px}
+  .muted{color:#64748b}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card" id="root"><div class="muted">Loading your report…</div></div></div>
+<script>
+(function(){
+  var m=location.pathname.match(/^\/r\/([a-z0-9]+)/i); var token=m?m[1]:'';
+  var root=document.getElementById('root');
+  var sid=new URLSearchParams(location.search).get('session_id');
+  function teaser(d){
+    var s=(d.summary&&d.summary[0])||{};
+    var col=s.score==null?'#64748b':(s.score>=91?'#16a34a':s.score>=80?'#ea580c':'#dc2626');
+    root.innerHTML='<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px"><div style="font-size:22px;font-weight:800">Your SEO &amp; AI Search Report</div><div class="muted" style="font-size:13px">Blue Collar AI, Inc. · AI-Powered Local SEO</div></div>'
+      +(s.domain?'<div style="background:'+col+';color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:16px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+s.domain+' — Grade '+(s.grade||'')+(s.score!=null?(' · '+s.score+'/100'):'')+'</div></div>':'')
+      +'<p style="font-size:15px;line-height:1.6">Unlock the complete, prioritized report — every issue with step-by-step fixes across Google SEO and AI search. Fix your site yourself, at your pace.</p>'
+      +'<a class="buy" href="/buy/'+token+'">Unlock the full report — $'+((d.reportPriceCents||4900)/100).toFixed(0)+'</a>'
+      +(d.stripeEnabled===false?'<p style="color:#b91c1c;margin-top:12px">Checkout is not set up yet — please contact us.</p>':'')
+      +'<p class="muted" style="font-size:13px;margin-top:18px">Prefer a hand? Chris 614-633-7935 · Dustin 614-206-3606 · www.bluecollarai.online</p>';
+  }
+  function full(rep){
+    root.innerHTML = (window.SEO&&SEO.reportHTML)?SEO.reportHTML(Array.isArray(rep)?rep[0]:rep):'<div class="muted">Report engine unavailable.</div>';
+  }
+  fetch('/api/shared/'+token).then(function(r){return r.ok?r.json():null;}).then(function(d){
+    if(!d){ root.innerHTML='<h2>Report not found</h2><p class="muted">This link may be invalid or expired.</p>'; return; }
+    if(!d.paid && sid){
+      return fetch('/api/shared/'+token+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid})}).then(function(r){return r.json();}).then(function(c){
+        if(c&&c.paid&&c.report){ full(c.report); } else { teaser(d); }
+      });
+    }
+    if(d.paid&&d.report){ full(d.report); } else { teaser(d); }
+  }).catch(function(){ root.innerHTML='<h2>Something went wrong</h2>'; });
+})();
+</script>
+</body>
+</html>

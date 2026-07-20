@@ -939,9 +939,10 @@ document.getElementById("seoPrint").onclick=function(){
 document.getElementById("seoEmail").onclick=async function(){
   if(!seoState.report){toast("Run a report first");return;}
   var to=prompt("Email the report to:", ""); if(!to)return; to=to.trim(); if(!/.+@.+\..+/.test(to)){toast("Enter a valid email");return;}
-  var r=seoState.report;
+  var r=seoState.report; var sc=SEO.score(r); var buyUrl=null;
+  try{ var sh=await api("/api/shared",{method:"POST",body:{report:r,name:r.domain,summary:[{domain:r.domain,error:false,score:sc.score,grade:sc.grade}]}}); if(sh&&sh.buy) buyUrl=sh.buy; }catch(e){}
   try{
-    var res=await fetch("/api/send-report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:to,subject:"Website audit for "+r.domain+" — Grade "+SEO.score(r).grade,html:SEO.emailHTML(seoState.name,r),text:SEO.emailText(seoState.name,r)})});
+    var res=await fetch("/api/send-report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:to,subject:"Website audit for "+r.domain+" — Grade "+sc.grade,html:SEO.emailHTML(seoState.name,r,{buyUrl:buyUrl}),text:SEO.emailText(seoState.name,r)})});
     if(res.ok){toast("Report emailed to "+to+" ✓");}
     else{ var d=await res.json().catch(function(){return {};}); toast("Email failed"+(d.error?(": "+d.error):"")+(d.detail?(" — "+(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail))):"")); }
   }catch(e){ toast("Email failed — network error"); }

@@ -10,6 +10,8 @@ const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || 'changeme';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5433/fieldcrm';
+const REPORT_PRICE_CENTS = parseInt(process.env.REPORT_PRICE_CENTS || '4900', 10);
+function baseUrl(req) { return (process.env.BASE_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, ''); }
 
 // Railway internal hostnames don't use SSL; external proxies and most hosted PG do
 const needsSSL = /rlwy\.net|railway\.app|amazonaws|neon\.tech|supabase/.test(DATABASE_URL)
@@ -355,7 +357,7 @@ app.get('/api/proxy', requireAuth, async (req, res) => {
     res.status(r.status).type('text/plain; charset=utf-8').send(body);
   } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
 });
-app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '', emailEnabled: !!process.env.RESEND_API_KEY }));
+app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '', emailEnabled: !!process.env.RESEND_API_KEY, stripeEnabled: !!process.env.STRIPE_SECRET_KEY, reportPriceCents: REPORT_PRICE_CENTS }));
 async function sendEmail({ to, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, error: 'email_not_configured' };
@@ -430,6 +432,62 @@ app.get('/api/audits/:id', requireAuth, async (req, res, next) => {
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
+
+/* ---------- $49 hosted report (Stripe DIY) ---------- */
+async function stripeCheckout(base, token, name) {
+  const key = process.env.STRIPE_SECRET_KEY; if (!key) return null;
+  const p = new URLSearchParams();
+  p.set('mode', 'payment'); p.set('success_url', base + '/r/' + token + '?session_id={CHECKOUT_SESSION_ID}'); p.set('cancel_url', base + '/r/' + token);
+  p.set('client_reference_id', token); p.set('line_items[0][quantity]', '1');
+  p.set('line_items[0][price_data][currency]', 'usd'); p.set('line_items[0][price_data][unit_amount]', String(REPORT_PRICE_CENTS));
+  p.set('line_items[0][price_data][product_data][name]', 'Full SEO & AI Search Report' + (name ? (' — ' + name) : ''));
+  try {
+    const r = await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: p.toString() });
+    if (!r.ok) { console.error('stripe', r.status, await r.text().catch(() => '')); return null; }
+    return (await r.json()).url;
+  } catch (e) { return null; }
+}
+async function stripePaid(sid) {
+  const key = process.env.STRIPE_SECRET_KEY; if (!key || !sid) return false;
+  try { const r = await fetch('https://api.stripe.com/v1/checkout/sessions/' + encodeURIComponent(sid), { headers: { 'Authorization': 'Bearer ' + key } }); if (!r.ok) return false; return (await r.json()).payment_status === 'paid'; } catch (e) { return false; }
+}
+app.post('/api/shared', requireAuth, async (req, res, next) => {
+  try {
+    const { report, name, summary } = req.body || {}; if (!report) return res.status(400).json({ error: 'report required' });
+    const token = crypto.randomBytes(9).toString('hex');
+    await pool.query('INSERT INTO shared_reports(token,name,report,summary) VALUES($1,$2,$3,$4)', [token, name || null, JSON.stringify(report), summary ? JSON.stringify(summary) : null]);
+    const base = baseUrl(req);
+    res.json({ token, url: base + '/r/' + token, buy: base + '/buy/' + token });
+  } catch (e) { next(e); }
+});
+app.get('/api/shared/:token', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT name,report,summary,paid FROM shared_reports WHERE token=$1', [req.params.token]);
+    if (!rows.length) return res.status(404).json({ error: 'not_found' });
+    const row = rows[0];
+    res.json({ name: row.name, paid: row.paid, summary: row.summary, report: row.paid ? row.report : null, stripeEnabled: !!process.env.STRIPE_SECRET_KEY });
+  } catch (e) { next(e); }
+});
+app.post('/api/shared/:token/claim', async (req, res, next) => {
+  try {
+    const paid = await stripePaid((req.body || {}).session_id);
+    if (!paid) return res.json({ paid: false });
+    await pool.query('UPDATE shared_reports SET paid=true, stripe_session=$1 WHERE token=$2', [(req.body || {}).session_id || null, req.params.token]);
+    const { rows } = await pool.query('SELECT name,report,summary FROM shared_reports WHERE token=$1', [req.params.token]);
+    if (!rows.length) return res.status(404).json({ error: 'not_found' });
+    res.json({ paid: true, name: rows[0].name, report: rows[0].report, summary: rows[0].summary });
+  } catch (e) { next(e); }
+});
+app.get('/buy/:token', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT name FROM shared_reports WHERE token=$1', [req.params.token]);
+    if (!rows.length) return res.status(404).send('Report not found');
+    if (!process.env.STRIPE_SECRET_KEY) return res.redirect('/r/' + req.params.token + '?nostripe=1');
+    const url = await stripeCheckout(baseUrl(req), req.params.token, rows[0].name);
+    return url ? res.redirect(url) : res.redirect('/r/' + req.params.token + '?payerr=1');
+  } catch (e) { next(e); }
+});
+app.get('/r/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'report.html')));
 
 /* ---------- static ---------- */
 app.get('/', (req, res) => {
