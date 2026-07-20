@@ -304,6 +304,7 @@
         <div class="fld"><label>Email</label><input id="drEmail" type="email"></div>
       </div>
       <div class="fld"><label>Website</label><input id="drWeb"></div>
+      <button class="btn small" id="drFindWeb" style="margin:-2px 0 8px">🔎 Find website (Google)</button>
       <div class="fld"><label>Point of contact</label><input id="drContact" placeholder="Owner / manager name"></div>
       <div class="frow">
         <div class="fld"><label>Owner name</label><input id="drOwnerName"></div>
@@ -698,11 +699,27 @@ document.getElementById("drSave").onclick=async function(){
   document.getElementById("drSaved").textContent="Saved ✓";
   setTimeout(function(){document.getElementById("drSaved").textContent="";},1800);
 };
+async function findWebsite(){
+  var b=getBiz(currentId);if(!b)return null;
+  var q=[b.name,(document.getElementById("drAddr").value||b.address||""),(document.getElementById("drZip").value||b.zip||"")].filter(Boolean).join(' ');
+  try{
+    var d=await api("/api/places?q="+encodeURIComponent(q));
+    if(d&&d.found&&d.website){
+      document.getElementById("drWeb").value=d.website;
+      if(!document.getElementById("drPhone").value && d.phone) document.getElementById("drPhone").value=d.phone;
+      if(!document.getElementById("drAddr").value && d.address) document.getElementById("drAddr").value=d.address;
+      return d.website;
+    }
+    toast("No website found for that business."); return null;
+  }catch(e){ toast("Website lookup unavailable — set a Places/Maps key."); return null; }
+}
+document.getElementById("drFindWeb").onclick=async function(){ toast("Searching Google…"); var w=await findWebsite(); if(w) toast("Found: "+w); };
 document.getElementById("drRunSeo").onclick=async function(){
   var b=getBiz(currentId);if(!b)return;
-  var web=(document.getElementById("drWeb").value||b.web||"").trim();
-  if(!web){ toast("Add a website first, then Save."); return; }
   if(!window.SEO){ toast("SEO engine still loading — try again."); return; }
+  var web=(document.getElementById("drWeb").value||b.web||"").trim();
+  if(!web){ document.getElementById("drSeo").textContent="Finding website…"; web=await findWebsite(); }
+  if(!web){ document.getElementById("drSeo").textContent="Add or find a website first."; return; }
   var el=document.getElementById("drSeo"); el.textContent="Auditing "+web+"… this can take ~30s.";
   try{
     var r=await SEO.audit(web,{psiKey:window.__PSI||""});
@@ -898,8 +915,8 @@ document.getElementById("aSave").onclick=async function(){
   refreshMarker(b);renderList();
   setTab("map");
   map.setView([b.lat,b.lng],15);
-  if(markers[b.id])markers[b.id].openPopup();
   toast('"'+b.name+'" added ✓');
+  openDrawer(b.id);   // open the new prospect so the rep can run the SEO audit + fill details in the field
 };
 
 /* ---------- list ---------- */

@@ -338,6 +338,21 @@ app.get('/api/proxy', requireAuth, async (req, res) => {
   } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
 });
 app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '' }));
+// Google Places lookup — find a business's website/phone from name + location (field speed)
+app.get('/api/places', requireAuth, async (req, res) => {
+  const key = process.env.PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) return res.status(503).json({ error: 'places_not_configured' });
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q required' });
+  try {
+    const ts = await fetch('https://maps.googleapis.com/maps/api/place/textsearch/json?query=' + encodeURIComponent(q) + '&key=' + key).then(r => r.json());
+    const first = ts.results && ts.results[0];
+    if (!first) return res.json({ found: false });
+    const det = await fetch('https://maps.googleapis.com/maps/api/place/details/json?place_id=' + first.place_id + '&fields=name,website,formatted_phone_number,formatted_address&key=' + key).then(r => r.json());
+    const d = det.result || {};
+    res.json({ found: true, name: d.name || '', website: d.website || '', phone: d.formatted_phone_number || '', address: d.formatted_address || '' });
+  } catch (e) { res.status(502).json({ error: 'places_failed' }); }
+});
 app.post('/api/shops/:id/audit', requireAuth, async (req, res, next) => {
   try {
     const { report, score, grade } = req.body || {};
