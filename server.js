@@ -62,6 +62,12 @@ async function init() {
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
   )`);
+  await pool.query(`ALTER TABLE shops
+    ADD COLUMN IF NOT EXISTS owner_name TEXT, ADD COLUMN IF NOT EXISTS owner_phone TEXT, ADD COLUMN IF NOT EXISTS owner_email TEXT,
+    ADD COLUMN IF NOT EXISTS manager_name TEXT, ADD COLUMN IF NOT EXISTS manager_phone TEXT, ADD COLUMN IF NOT EXISTS manager_email TEXT,
+    ADD COLUMN IF NOT EXISTS alliance_status TEXT,
+    ADD COLUMN IF NOT EXISTS latest_grade TEXT, ADD COLUMN IF NOT EXISTS latest_score INTEGER,
+    ADD COLUMN IF NOT EXISTS last_audit_at TIMESTAMPTZ, ADD COLUMN IF NOT EXISTS last_report JSONB`);
   await pool.query(`CREATE TABLE IF NOT EXISTS visits(
     id SERIAL PRIMARY KEY,
     shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -117,11 +123,14 @@ function notify(event, payload) {
   }).catch(e => console.error('notify failed:', e.message));
 }
 
-const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes'];
+const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes',
+  'owner_name', 'owner_phone', 'owner_email', 'manager_name', 'manager_phone', 'manager_email', 'alliance_status'];
 function shopVals(b) {
   return [b.name || '', b.address || '', b.zip || '', b.phone || '', b.email || '', b.web || '',
     b.contact || '', b.category || 'repair',
-    isFinite(+b.lat) ? +b.lat : null, isFinite(+b.lng) ? +b.lng : null, b.notes || ''];
+    isFinite(+b.lat) ? +b.lat : null, isFinite(+b.lng) ? +b.lng : null, b.notes || '',
+    b.owner_name || '', b.owner_phone || '', b.owner_email || '',
+    b.manager_name || '', b.manager_phone || '', b.manager_email || '', b.alliance_status || ''];
 }
 async function insertShop(market, b) {
   const q = `INSERT INTO shops(market_slug,${SHOP_COLS.join(',')})
@@ -296,6 +305,49 @@ app.get('/api/position', requireAuth, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT device,label,lat,lng,accuracy,updated_at FROM positions WHERE updated_at > now() - interval '15 minutes'`);
     res.json(rows);
+  } catch (e) { next(e); }
+});
+
+/* ---------- SEO audit (Blue Collar AI engine) ---------- */
+function isPrivateHost(hRaw) {
+  const h = String(hRaw || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === '169.254.169.254') return true;
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (h === '::1' || h.startsWith('fe80') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  return false;
+}
+app.get('/api/proxy', requireAuth, async (req, res) => {
+  const target = req.query.url;
+  if (!target) return res.status(400).send('missing url');
+  let u; try { u = new URL(target); } catch (e) { return res.status(400).send('bad url'); }
+  if (!/^https?:$/.test(u.protocol)) return res.status(400).send('only http/https');
+  if (isPrivateHost(u.hostname)) return res.status(403).send('blocked host');
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(u.href, { signal: ctrl.signal, redirect: 'follow', headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9',
+      'Upgrade-Insecure-Requests': '1', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none',
+    } });
+    const body = await r.text();
+    res.set('Access-Control-Allow-Origin', '*');
+    res.status(r.status).type('text/plain; charset=utf-8').send(body);
+  } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
+});
+app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '' }));
+app.post('/api/shops/:id/audit', requireAuth, async (req, res, next) => {
+  try {
+    const { report, score, grade } = req.body || {};
+    if (!report) return res.status(400).json({ error: 'report required' });
+    const { rows } = await pool.query(
+      'UPDATE shops SET last_report=$1, latest_score=$2, latest_grade=$3, last_audit_at=now(), updated_at=now() WHERE id=$4 RETURNING *',
+      [JSON.stringify(report), (score == null ? null : score), grade || null, +req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    notify('seo.audited', { shop: rows[0] });
+    res.json(rows[0]);
   } catch (e) { next(e); }
 });
 

@@ -9,6 +9,7 @@
 <title>Field CRM</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/seo-engine.js"></script>
 <style>
   :root{
     --ink:#10151b; --panel:#1a212a; --panel2:#232d38; --line:#31404f;
@@ -304,9 +305,24 @@
       </div>
       <div class="fld"><label>Website</label><input id="drWeb"></div>
       <div class="fld"><label>Point of contact</label><input id="drContact" placeholder="Owner / manager name"></div>
+      <div class="frow">
+        <div class="fld"><label>Owner name</label><input id="drOwnerName"></div>
+        <div class="fld"><label>Owner phone</label><input id="drOwnerPhone" inputmode="tel"></div>
+      </div>
+      <div class="fld"><label>Owner email</label><input id="drOwnerEmail" type="email"></div>
+      <div class="frow">
+        <div class="fld"><label>Manager name</label><input id="drMgrName"></div>
+        <div class="fld"><label>Manager phone</label><input id="drMgrPhone" inputmode="tel"></div>
+      </div>
+      <div class="fld"><label>Manager email</label><input id="drMgrEmail" type="email"></div>
+      <div class="fld" id="drAllianceWrap"><label>US Alliance status</label><select id="drAlliance"><option value="">No profile yet</option><option value="basic">Basic profile</option><option value="elite">Elite profile</option></select></div>
       <div class="fld"><label>Notes</label><textarea id="drNotes" placeholder="Anything worth remembering"></textarea></div>
       <button class="btn small" id="drSave">Save details</button>
       <div class="save-note" id="drSaved"></div>
+
+      <div class="dr-sec">SEO &amp; AI Search audit</div>
+      <button class="btn primary" id="drRunSeo" style="width:100%">Run SEO audit</button>
+      <div id="drSeo" class="hint" style="margin-top:8px"></div>
 
       <div class="dr-sec">Log a visit</div>
       <div class="fld"><label>Date &amp; time</label><input id="vWhen" type="datetime-local"></div>
@@ -602,6 +618,13 @@ document.getElementById("nearClose").onclick=function(){document.getElementById(
 
 /* ---------- drawer ---------- */
 window.__open=openDrawer;
+fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';}).catch(function(){});
+function renderSeo(b){
+  var el=document.getElementById("drSeo"); if(!el)return;
+  if(b.last_report && window.SEO){ el.innerHTML=SEO.findingsHTML(b.last_report)+(b.last_audit_at?('<div style="opacity:.6;font-size:11px;margin-top:6px">Last audit '+new Date(b.last_audit_at).toLocaleString()+'</div>'):''); }
+  else if(b.latest_grade){ el.textContent='Grade '+b.latest_grade+(b.latest_score!=null?(' ('+b.latest_score+'/100)'):'')+' — tap Run SEO audit to refresh.'; }
+  else el.textContent='No audit yet — tap Run SEO audit.';
+}
 function openDrawer(id){
   currentId=id;
   var b=getBiz(id); if(!b)return;
@@ -619,6 +642,14 @@ function openDrawer(id){
   document.getElementById("drEmail").value=b.email||"";
   document.getElementById("drWeb").value=b.web||"";
   document.getElementById("drContact").value=b.contact||"";
+  document.getElementById("drOwnerName").value=b.owner_name||"";
+  document.getElementById("drOwnerPhone").value=b.owner_phone||"";
+  document.getElementById("drOwnerEmail").value=b.owner_email||"";
+  document.getElementById("drMgrName").value=b.manager_name||"";
+  document.getElementById("drMgrPhone").value=b.manager_phone||"";
+  document.getElementById("drMgrEmail").value=b.manager_email||"";
+  document.getElementById("drAlliance").value=b.alliance_status||"";
+  renderSeo(b);
   document.getElementById("drNotes").value=b.notes||"";
   document.getElementById("drSaved").textContent="";
   document.getElementById("vWhen").value=localNow();
@@ -651,6 +682,13 @@ document.getElementById("drSave").onclick=async function(){
     email:document.getElementById("drEmail").value.trim(),
     web:document.getElementById("drWeb").value.trim(),
     contact:document.getElementById("drContact").value.trim(),
+    owner_name:document.getElementById("drOwnerName").value.trim(),
+    owner_phone:document.getElementById("drOwnerPhone").value.trim(),
+    owner_email:document.getElementById("drOwnerEmail").value.trim(),
+    manager_name:document.getElementById("drMgrName").value.trim(),
+    manager_phone:document.getElementById("drMgrPhone").value.trim(),
+    manager_email:document.getElementById("drMgrEmail").value.trim(),
+    alliance_status:document.getElementById("drAlliance").value,
     notes:document.getElementById("drNotes").value.trim(),
     lat:b.lat,lng:b.lng};
   var saved=await guard(api("/api/shops/"+b.id,{method:"PUT",body:upd}),"Save failed");
@@ -659,6 +697,20 @@ document.getElementById("drSave").onclick=async function(){
   document.getElementById("drName").textContent=b.name;
   document.getElementById("drSaved").textContent="Saved ✓";
   setTimeout(function(){document.getElementById("drSaved").textContent="";},1800);
+};
+document.getElementById("drRunSeo").onclick=async function(){
+  var b=getBiz(currentId);if(!b)return;
+  var web=(document.getElementById("drWeb").value||b.web||"").trim();
+  if(!web){ toast("Add a website first, then Save."); return; }
+  if(!window.SEO){ toast("SEO engine still loading — try again."); return; }
+  var el=document.getElementById("drSeo"); el.textContent="Auditing "+web+"… this can take ~30s.";
+  try{
+    var r=await SEO.audit(web,{psiKey:window.__PSI||""});
+    var sc=SEO.score(r);
+    var saved=await guard(api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:r,score:sc.score,grade:sc.grade}}),"Save failed");
+    Object.assign(b,saved);
+    renderSeo(b); toast("Audit saved — Grade "+sc.grade+" ("+sc.score+"/100)");
+  }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
 };
 document.getElementById("vLog").onclick=async function(){
   var b=getBiz(currentId);if(!b)return;
