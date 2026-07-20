@@ -71,8 +71,12 @@ async function auditOne(raw){
   if(html.length<500||bodyText.length<30) throw {blocked:true,reason:'Empty or near-empty response — the real page could not be retrieved.'};
   const tLow=(doc.querySelector('title')&&doc.querySelector('title').textContent||'').trim().toLowerCase();
   const cTitles=['just a moment','one moment','attention required','checking your browser','please wait','verifying you are human','ddos-guard'];
-  const cSigs=['challenges.cloudflare.com','cf-browser-verification','__cf_chl','cf_chl_opt','/cdn-cgi/challenge','ddos-guard','_imperva_','distil_r_captcha'];
-  if(cTitles.some(t=>tLow.includes(t))||cSigs.some(s=>html.includes(s))) throw {blocked:true,reason:'Blocked by bot protection (challenge page returned, not the site).'};
+  // Strong interstitial markers only. NOTE: Cloudflare injects "/cdn-cgi/challenge-platform/" into NORMAL fully-served 200 pages,
+  // so that substring must NOT be treated as a block. Gate these markers behind an interstitial-sized body so a real page
+  // that merely embeds a Turnstile widget (large content) isn't wrongly flagged.
+  const cSigs=['cf-browser-verification','__cf_chl','cf_chl_opt','_imperva_','distil_r_captcha','challenges.cloudflare.com/turnstile'];
+  const interstitial = bodyText.length < 1500; // genuine challenge pages are tiny; a fully rendered site is not
+  if(cTitles.some(t=>tLow.includes(t)) || (interstitial && cSigs.some(s=>html.includes(s)))) throw {blocked:true,reason:'Blocked by bot protection (challenge page returned, not the site).'};
   const checks=[]; const add=(cat,label,points,status,detail,why,fix)=>checks.push({cat,label,points,status,detail,why,fix});
   const titleEl=doc.querySelector('title'); const title=(titleEl&&titleEl.textContent||'').trim();
   const titleCount=doc.querySelectorAll('title').length;
