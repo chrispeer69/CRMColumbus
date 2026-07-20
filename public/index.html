@@ -228,6 +228,7 @@
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px">
       <button class="btn primary" id="btnAuditAll">⚡ Audit all in this market</button>
+      <button class="btn" id="btnAuditMissing">Audit missing / failed only</button>
       <span class="hint" id="auditAllStatus"></span>
     </div>
     <div id="listItems"></div>
@@ -1230,19 +1231,25 @@ function renderList(){
 
 /* ---------- bulk audit: run SEO audits for every shop in the current market ---------- */
 var bulkRunning=false;
-document.getElementById("btnAuditAll").onclick=function(){
-  if(bulkRunning){ bulkRunning=false; return; } // second click = stop
+function startBulk(onlyMissing){
+  if(bulkRunning){ bulkRunning=false; return; } // click while running = stop
   if(!window.SEO){ toast("SEO engine still loading — try again in a moment"); return; }
-  var shops=(state.businesses||[]).slice();
-  if(!shops.length){ toast("No companies loaded for this market."); return; }
-  if(!confirm("Run SEO/AI audits for all "+shops.length+" companies in this market?\n\nThis runs live crawls (~20-30s each) and can take a while. You can keep working; progress shows here and scores fill in live. Click the button again to stop.")) return;
+  var all=(state.businesses||[]).slice();
+  var shops=onlyMissing ? all.filter(function(b){return b.latest_score==null;}) : all;
+  if(!shops.length){ toast(onlyMissing?"Nothing to retry — every company already has a score.":"No companies loaded for this market."); return; }
+  var msg=onlyMissing
+    ? "Audit the "+shops.length+" companies with no score yet (missing website or previously failed)?\n\nThis re-tries website lookups and crawls — the ones that already scored are skipped. Click again to stop."
+    : "Run SEO/AI audits for all "+shops.length+" companies in this market?\n\nThis runs live crawls (~20-30s each) and can take a while. You can keep working; progress shows here and scores fill in live. Click the button again to stop.";
+  if(!confirm(msg)) return;
   runBulkAudit(shops);
-};
+}
+document.getElementById("btnAuditAll").onclick=function(){ startBulk(false); };
+document.getElementById("btnAuditMissing").onclick=function(){ startBulk(true); };
 async function runBulkAudit(shops){
   var status=document.getElementById("auditAllStatus");
-  var btn=document.getElementById("btnAuditAll");
+  var btnA=document.getElementById("btnAuditAll"), btnM=document.getElementById("btnAuditMissing");
   var total=shops.length, done=0, ok=0, noWeb=0, failed=0, i=0;
-  bulkRunning=true; btn.textContent="■ Stop audits"; btn.classList.remove("primary");
+  bulkRunning=true; btnA.textContent="■ Stop audits"; btnA.classList.remove("primary"); btnM.style.display="none";
   function upd(cur){ status.textContent="Audited "+done+"/"+total+" · "+ok+" scored · "+noWeb+" no website · "+failed+" failed"+(cur?(" · now: "+cur):""); }
   upd("");
   async function worker(){
@@ -1251,7 +1258,7 @@ async function runBulkAudit(shops){
       var b=shops[idx];
       var url=(b.web||'').trim();
       if(!url){ // try to find the website via Google Places so we can still audit it
-        try{ var q=b.name+' '+(b.address||b.zip||''); var pl=await api("/api/places?q="+encodeURIComponent(q)); if(pl&&pl.website){ url=pl.website; b.web=url; } }catch(e){}
+        try{ var q=(b.name+' '+(b.address||'')+' '+(b.zip||'')).replace(/\s+/g,' ').trim(); var pl=await api("/api/places?q="+encodeURIComponent(q)); if(pl&&pl.website){ url=pl.website; b.web=url; } }catch(e){}
       }
       if(!url){ noWeb++; done++; upd(""); continue; }
       upd(b.name);
@@ -1268,7 +1275,7 @@ async function runBulkAudit(shops){
   var pool=[]; for(var w=0; w<4; w++) pool.push(worker());
   await Promise.all(pool);
   var stopped=bulkRunning===false && done<total;
-  bulkRunning=false; btn.textContent="⚡ Audit all in this market"; btn.classList.add("primary");
+  bulkRunning=false; btnA.textContent="⚡ Audit all in this market"; btnA.classList.add("primary"); btnM.style.display="";
   status.textContent=(stopped?"Stopped — ":"Done — ")+ok+" scored, "+noWeb+" had no website, "+failed+" failed, of "+total+" companies.";
   toast("Bulk audit "+(stopped?"stopped":"complete")+": "+ok+" scored");
   renderList();
