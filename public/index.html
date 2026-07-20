@@ -1124,27 +1124,31 @@ document.getElementById("aGeo").onclick=async function(){
 document.getElementById("aSave").onclick=async function(){
   var name=document.getElementById("aName").value.trim();
   if(!name){toast("Business name is required");return;}
-  if(!addLatLng){toast("Set the location first (GPS, map, or address)");return;}
+  var addr=document.getElementById("aAddr").value.trim();
+  var zip=document.getElementById("aZip").value.trim();
+  // If no location was set, try to geocode the typed address so the rep doesn't have to
+  if(!addLatLng){
+    var q=[addr,zip].filter(Boolean).join(' ');
+    if(q){ try{ var g=await api("/api/geocode?q="+encodeURIComponent(q)); if(g&&g.found) addLatLng=[g.lat,g.lng]; }catch(e){} }
+  }
   var b=await guard(api("/api/shops",{method:"POST",body:{
     market:state.market,name:name,
     category:document.getElementById("aCat").value,
-    zip:document.getElementById("aZip").value.trim(),
-    address:document.getElementById("aAddr").value.trim(),
+    zip:zip, address:addr,
     phone:document.getElementById("aPhone").value.trim(),
     email:document.getElementById("aEmail").value.trim(),
     web:document.getElementById("aWeb").value.trim(),
     contact:document.getElementById("aContact").value.trim(),
     notes:document.getElementById("aNotes").value.trim(),
-    lat:addLatLng[0],lng:addLatLng[1]}}),"Save failed");
+    lat:addLatLng?addLatLng[0]:null,lng:addLatLng?addLatLng[1]:null}}),"Save failed");
   state.businesses.push(b);
   ["aName","aZip","aAddr","aPhone","aEmail","aWeb","aContact","aNotes"].forEach(function(i){document.getElementById(i).value="";});
   addLatLng=null;
   if(addPreview){map.removeLayer(addPreview);addPreview=null;}
   document.getElementById("aLoc").textContent="No location set yet — use one of the buttons above.";
   refreshMarker(b);renderList();
-  setTab("map");
-  map.setView([b.lat,b.lng],15);
-  toast('"'+b.name+'" added ✓');
+  if(b.lat!=null&&b.lng!=null){ setTab("map"); map.setView([b.lat,b.lng],15); }
+  toast('"'+b.name+'" added ✓'+(b.lat==null?' — set a map pin later':''));
   openDrawer(b.id);   // open the new prospect so the rep can run the SEO audit + fill details in the field
 };
 
