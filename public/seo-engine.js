@@ -253,7 +253,7 @@ function emailHTML(clientName,r,opts){
   const sc=score(r); const col=sc.score>=91?'#16a34a':sc.score>=80?'#ea580c':'#dc2626';
   const issues=r.checks.filter(c=>c.status==='fail'||c.status==='warn').sort((a,b)=>a.status===b.status?b.points-a.points:(a.status==='fail'?-1:1));
   const quick=issues.filter(c=>isQuick(c.label)).slice(0,8), proj=issues.filter(c=>!isQuick(c.label)).slice(0,6);
-  const li=list=>list.map(c=>'<li style="margin:6px 0"><b>'+esc(c.label)+'</b>'+(c.fix?'<br><span style="color:#475569">'+esc(c.fix)+'</span>':'')+'</li>').join('');
+  const li=list=>list.map(c=>'<li style="margin:5px 0">'+esc(c.label)+'</li>').join('');
   const contacts=BRAND.contacts.map(c=>esc(c.name)+' · '+esc(c.phone)+' · '+esc(c.email)).join('<br>');
   const F="font-family:'Helvetica Neue',Arial,sans-serif;color:#0f172a";
   return '<div style="'+F+';max-width:640px;margin:0 auto;padding:8px">'
@@ -263,7 +263,8 @@ function emailHTML(clientName,r,opts){
     +'<div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin:0 0 16px"><div style="background:'+col+';color:#fff;padding:16px 20px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+esc(r.domain)+' — Grade '+sc.grade+' · '+sc.score+'/100</div></div>'
       +'<div style="padding:18px 20px"><div style="font-size:13px;color:#475569;margin-bottom:10px"><b style="color:#b91c1c">'+sc.counts.fail+' critical</b> · <b style="color:#b45309">'+sc.counts.warn+' to improve</b> · '+sc.counts.pass+' passing</div>'
       +(quick.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Quick wins</div><ul style="margin:4px 0 12px;padding-left:18px;font-size:14px">'+li(quick)+'</ul>':'')
-      +(proj.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Bigger opportunities</div><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+li(proj)+'</ul>':'')+'</div></div>'
+      +(proj.length?'<div style="font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em">Bigger opportunities</div><ul style="margin:4px 0 0;padding-left:18px;font-size:14px">'+li(proj)+'</ul>':'')
+      +'<div style="font-size:13px;color:#64748b;margin-top:12px;border-top:1px solid #eef2f7;padding-top:10px">Every issue above is fixable — the <b>full report includes the exact step-by-step fix for each one</b>.</div>'+'</div></div>'
     +'<div style="background:#0f172a;color:#fff;border-radius:10px;padding:22px 24px;margin-bottom:16px"><div style="font-size:19px;font-weight:800;margin-bottom:8px">Let us turn this into more calls — this week.</div><p style="margin:0 0 14px;color:#e2e8f0;font-size:14px;line-height:1.6">Every issue above is fixable, usually faster than you think. '+esc(BRAND.name)+' handles the Google SEO and the AI-search work most agencies are not doing yet — so you show up first and win the customer.</p><div style="font-weight:800;margin-bottom:10px">Two ways to fix it:</div>'
       +'<div style="margin-bottom:10px">Reply or call for a <b>free 15-minute walkthrough</b>.'+(opts.buyUrl?' &nbsp;— or —&nbsp; <a href="'+opts.buyUrl+'" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;padding:9px 16px;border-radius:6px;margin-top:6px">Get the full report — $'+((BRAND.reportPrice||'$49').replace(/[^0-9]/g,'')||'49')+' (DIY)</a>':'')+'</div>'
       +'<div style="margin-top:8px;font-size:14px;color:#cbd5e1;line-height:1.7">'+contacts+'</div></div>'
@@ -272,8 +273,8 @@ function emailHTML(clientName,r,opts){
 function emailText(clientName,r){
   const sc=score(r); let t=(clientName?('Hi '+clientName+',\n\n'):'Hi,\n\n');
   t+='We audited your website across Google SEO and AI search. '+r.domain+' — Grade '+sc.grade+' ('+sc.score+'/100): '+sc.counts.fail+' critical, '+sc.counts.warn+' to improve, '+sc.counts.pass+' passing.\n\n';
-  r.checks.filter(c=>c.status==='fail'||c.status==='warn').slice(0,10).forEach(c=>{ t+='  - '+c.label+(c.fix?': '+c.fix:'')+'\n'; });
-  t+='\nEvery issue is fixable — usually faster than you think. Reply or call for a free 15-minute walkthrough.\n'+BRAND.contacts.map(c=>c.name+' · '+c.phone+' · '+c.email).join('\n')+'\n'+BRAND.web+'\n';
+  r.checks.filter(c=>c.status==='fail'||c.status==='warn').slice(0,10).forEach(c=>{ t+='  - '+c.label+'\n'; });
+  t+='\nEvery issue is fixable — the full report includes the exact step-by-step fix for each. Reply or call for a free 15-minute walkthrough.\n'+BRAND.contacts.map(c=>c.name+' · '+c.phone+' · '+c.email).join('\n')+'\n'+BRAND.web+'\n';
   return t;
 }
 async function audit(url, opts){
