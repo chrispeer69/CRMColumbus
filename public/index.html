@@ -101,8 +101,10 @@
     transform:translateY(110%);transition:transform .24s ease}
   #drawer.open{transform:translateY(0)}
   @media (min-width:760px){
-    #drawer{left:auto;top:0;bottom:0;width:430px;border-radius:0;border-left:1px solid var(--line);transform:translateX(105%)}
+    #drawer{left:0;right:0;top:0;bottom:0;width:100%;border-radius:0;border-left:0;transform:translateX(105%)}
     #drawer.open{transform:translateX(0)}
+    #drawer .dr-body{max-width:880px;margin:0 auto;width:100%}
+    #drawer .dr-head{max-width:880px;margin:0 auto;width:100%}
   }
   .dr-head{padding:13px 14px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
   .dr-head .pin{width:14px;height:14px;border-radius:50%;margin-top:5px;flex-shrink:0}
