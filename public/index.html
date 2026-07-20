@@ -701,6 +701,8 @@ document.getElementById("nearClose").onclick=function(){document.getElementById(
 
 /* ---------- drawer ---------- */
 window.__open=openDrawer;
+window.wlOpen=function(id){ document.getElementById("wlModal").classList.remove("open"); openDrawer(id); };
+window.viewAudit=async function(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} };
 fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';}).catch(function(){});
 function renderSeo(b){
   var el=document.getElementById("drSeo"); if(!el)return;
@@ -854,7 +856,7 @@ document.getElementById("drRunSeo").onclick=async function(){
 };
 /* ---------- Prospect worklist ---------- */
 var wlRows=[];
-document.getElementById("btnWorklist").onclick=function(){ document.getElementById("wlModal").classList.add("open"); document.getElementById("wlResults").innerHTML='<div class="hint">Set filters and tap Search.</div>'; };
+document.getElementById("btnWorklist").onclick=function(){ document.getElementById("wlModal").classList.add("open"); wlSearch(); };
 document.getElementById("wlClose").onclick=function(){ document.getElementById("wlModal").classList.remove("open"); };
 async function wlSearch(){
   var kw=(document.getElementById("wlKw").value||'').trim().toLowerCase();
