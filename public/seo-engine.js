@@ -354,5 +354,38 @@ async function audit(url, opts){
   if(opts.speed!==false){ try{ await addSpeed(r, opts.psiKey||''); }catch(e){} }
   return r;
 }
-window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, BRAND };
+// Side-by-side comparison of many businesses (ranked leaderboard from stored audits).
+// items: [{ name, report }]. Ranks best-to-worst; color-codes score, speed and each category.
+function comparisonHTML(items){
+  const F="font-family:'Inter',system-ui,Arial,sans-serif;color:#0f172a";
+  const rows=(items||[]).filter(x=>x&&x.report).map(x=>{
+    const sc=score(x.report); const sp=x.report.speed||{};
+    const mob=(sp.mobile&&!sp.mobile.error&&sp.mobile.score!=null)?sp.mobile.score:null;
+    return { name:x.name||x.report.domain, domain:x.report.domain, sc:sc, mobile:mob };
+  });
+  if(!rows.length) return '<p style="'+F+'">Select two or more audited companies to compare. (Companies without a saved audit can\'t be ranked yet — run their audit first.)</p>';
+  rows.sort((a,b)=>(b.sc.score||0)-(a.sc.score||0));
+  const catSet={}; rows.forEach(r=>Object.keys(r.sc.byCat).forEach(c=>catSet[c]=1)); const cats=Object.keys(catSet);
+  const gcol=s=> s>=90?'#16a34a':s>=80?'#65a30d':s>=70?'#f59e0b':s>=55?'#f97316':'#dc2626';
+  const pcol=p=> p>=80?'#16a34a':p>=60?'#f59e0b':'#dc2626';
+  const medal=i=> i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+  const th=t=>'<th style="text-align:left;padding:8px 10px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #e2e8f0;white-space:nowrap">'+esc(t)+'</th>';
+  const head='<tr>'+th('#')+th('Company')+th('Grade')+th('Score')+th('Mobile')+cats.map(c=>th(c)).join('')+'</tr>';
+  const body=rows.map((r,i)=>{
+    const cells=cats.map(c=>{ const b=r.sc.byCat[c]; if(!b||!b.t) return '<td style="padding:8px 10px;color:#94a3b8">—</td>'; const p=Math.round(100*b.e/b.t); return '<td style="padding:8px 10px;font-weight:700;color:'+pcol(p)+'">'+p+'%</td>'; }).join('');
+    const mob=r.mobile==null?'<td style="padding:8px 10px;color:#94a3b8">—</td>':'<td style="padding:8px 10px;font-weight:700;color:'+gcol(r.mobile)+'">'+r.mobile+'</td>';
+    return '<tr style="border-bottom:1px solid #eef2f7;'+(i===0?'background:#f0fdf4':'')+'">'
+      +'<td style="padding:8px 10px;font-weight:800">'+medal(i)+'</td>'
+      +'<td style="padding:8px 10px;font-weight:700;white-space:nowrap">'+esc(r.name)+'<div style="font-size:11px;color:#94a3b8;font-weight:400">'+esc(r.domain)+'</div></td>'
+      +'<td style="padding:8px 10px;font-weight:800;color:'+gcol(r.sc.score)+'">'+r.sc.grade+'</td>'
+      +'<td style="padding:8px 10px;font-weight:800;color:'+gcol(r.sc.score)+'">'+r.sc.score+'</td>'
+      +mob+cells+'</tr>';
+  }).join('');
+  return '<div style="'+F+'">'
+    +'<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px"><div style="font-size:20px;font-weight:800">SEO &amp; AI Search — Side-by-Side</div><div style="color:#64748b;font-size:13px">'+esc(BRAND.name)+' · '+rows.length+' businesses ranked</div></div>'
+    +'<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">'+head+body+'</table></div>'
+    +'<div style="font-size:12px;color:#64748b;margin-top:10px">Ranked best to worst by overall score. Green ≥80% · amber 60–79% · red under 60%. The lowest-ranked businesses are your strongest sales prospects.</div>'
+  +'</div>';
+}
+window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, BRAND };
 })();

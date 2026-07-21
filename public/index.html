@@ -440,6 +440,7 @@
         <button class="btn" id="wlExport">Export CSV</button>
         <button class="btn" id="wlCopyEmails">Copy emails</button>
         <button class="btn" id="wlGmail" style="background:#0b8043;border-color:#0b8043;color:#fff">✉️ Email in Gmail</button>
+        <button class="btn" id="wlCompare">⚖ Compare selected</button>
         <button class="btn primary" id="wlRun">Search</button>
       </div>
     </div>
@@ -937,13 +938,24 @@ function renderWlResults(){
   el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first) · <b>'+emCount+' with an email</b>'+(wlNote?(' — '+esc(wlNote)):'')+'</div>'+wlRows.map(function(b){
     var g=b.latest_grade||'—'; var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">'
-      +'<div style="min-width:0"><div style="font-weight:700">'+esc(b.name)+'</div><div class="hint" style="font-size:12px">'+esc(b.industry||CAT_LABEL[b.category]||b.category)+(b.address?' · '+esc(b.address):'')+'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
+        +'<input type="checkbox" class="wlSelCb" value="'+b.id+'" title="Select to compare"'+(b.last_report?'':' disabled')+' style="width:18px;height:18px;flex-shrink:0">'
+        +'<div style="min-width:0"><div style="font-weight:700">'+esc(b.name)+'</div><div class="hint" style="font-size:12px">'+esc(b.industry||CAT_LABEL[b.category]||b.category)+(b.address?' · '+esc(b.address):'')+'</div></div>'
+      +'</div>'
       +'<div style="display:flex;align-items:center;gap:8px;flex-shrink:0"><span style="font-weight:800;color:'+col+'">'+g+(b.latest_score!=null?(' '+b.latest_score):'')+'</span><button class="btn" style="padding:4px 10px;min-height:0" onclick="wlOpen('+b.id+')">Open</button></div>'
     +'</div>';
   }).join('');
 }
 function wlOpen(id){ document.getElementById("wlModal").classList.remove("open"); openDrawer(id); }
 document.getElementById("wlRun").onclick=wlSearch;
+document.getElementById("wlCompare").onclick=function(){
+  if(!window.SEO){toast("SEO engine still loading");return;}
+  var ids=[].slice.call(document.querySelectorAll('.wlSelCb:checked')).map(function(c){return +c.value;});
+  if(ids.length<2){toast("Tick at least 2 audited companies to compare.");return;}
+  var items=ids.map(function(id){ var b=getBiz(id); return b&&b.last_report?{name:b.name,report:b.last_report}:null; }).filter(Boolean);
+  if(items.length<2){toast("At least 2 of the selected need a saved audit — run their audits first.");return;}
+  openComparison(items);
+};
 document.getElementById("wlExport").onclick=function(){
   if(!wlRows.length){toast("Search first");return;}
   var cols=["name","industry","category","address","zip","phone","email","web","latest_grade","latest_score","alliance_status","voice_ai","cc_processing"];
@@ -959,12 +971,13 @@ function seoCloseFn(){ document.getElementById("seoModal").classList.remove("ope
 document.getElementById("seoClose").onclick=seoCloseFn;
 document.getElementById("seoSaveDoc").onclick=saveReportAsDoc;
 document.getElementById("btnSeoTool").onclick=function(){
-  seoState={report:null,shopId:null,name:''};
+  seoState={report:null,shopId:null,name:'',mode:'report'};
   document.getElementById("seoTitle").textContent="SEO & AI Search Report";
   document.getElementById("seoToolBar").style.display="flex";
   document.getElementById("seoUrl").value="";
   document.getElementById("seoBody").innerHTML='<div class="hint" style="color:#64748b">Enter a website above and tap <b>Run audit</b>.</div>';
   document.getElementById("seoAddCrm").style.display="inline-block";
+  document.getElementById("seoEmail").style.display="inline-block"; document.getElementById("seoSaveDoc").style.display="inline-block";
   seoOpen(); setTimeout(function(){document.getElementById("seoUrl").focus();},80);
 };
 document.getElementById("seoRun").onclick=async function(){
@@ -980,12 +993,27 @@ function openSeoReport(r, shopId, name){
   document.getElementById("seoToolBar").style.display="none";
   document.getElementById("seoBody").innerHTML=SEO.reportHTML(r);
   document.getElementById("seoAddCrm").style.display= shopId?"none":"inline-block";
+  document.getElementById("seoEmail").style.display="inline-block"; document.getElementById("seoSaveDoc").style.display="inline-block";
+  seoOpen();
+}
+function openComparison(items){
+  seoState={mode:'compare',compareHTML:SEO.comparisonHTML(items),report:null,shopId:null,name:'Comparison'};
+  document.getElementById("seoTitle").textContent="Compare — "+items.length+" businesses";
+  document.getElementById("seoToolBar").style.display="none";
+  document.getElementById("seoBody").innerHTML=seoState.compareHTML;
+  // report-only actions don't apply to a comparison
+  document.getElementById("seoAddCrm").style.display="none";
+  document.getElementById("seoEmail").style.display="none";
+  document.getElementById("seoSaveDoc").style.display="none";
+  document.getElementById("wlModal").classList.remove("open");
   seoOpen();
 }
 document.getElementById("seoPrint").onclick=function(){
-  if(!seoState.report){toast("Run a report first");return;}
+  var title, html;
+  if(seoState.mode==='compare'){ title='SEO Comparison'; html=seoState.compareHTML; }
+  else { if(!seoState.report){toast("Run a report first");return;} title='SEO Report — '+(seoState.report.domain||''); html=SEO.reportHTML(seoState.report); }
   var w=window.open('','_blank'); if(!w){toast("Allow pop-ups to print");return;}
-  w.document.write('<html><head><title>SEO Report — '+ (seoState.report.domain||'') +'</title><meta charset="utf-8"><style>body{font-family:Inter,Arial,sans-serif;margin:24px;color:#0f172a}</style></head><body>'+SEO.reportHTML(seoState.report)+'<'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
+  w.document.write('<html><head><title>'+title+'</title><meta charset="utf-8"><style>body{font-family:Inter,Arial,sans-serif;margin:24px;color:#0f172a}</style></head><body>'+html+'<'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
   w.document.close();
 };
 document.getElementById("seoEmail").onclick=async function(){
