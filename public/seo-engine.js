@@ -369,8 +369,10 @@ function comparisonHTML(items){
   const gcol=s=> s>=90?'#16a34a':s>=80?'#65a30d':s>=70?'#f59e0b':s>=55?'#f97316':'#dc2626';
   const pcol=p=> p>=80?'#16a34a':p>=60?'#f59e0b':'#dc2626';
   const medal=i=> i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+  const CATSHORT={'Indexability & Crawlability':'Index','On-Page Content':'On-Page','Technical & Mobile':'Technical','Local SEO':'Local SEO','Social Sharing':'Social','Images & Accessibility':'Images','Performance Hygiene':'Perf.','AI Search & Answer Engines':'AI Search','Page Speed & Core Web Vitals':'Speed'};
   const th=t=>'<th style="text-align:left;padding:8px 10px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #e2e8f0;white-space:nowrap">'+esc(t)+'</th>';
-  const head='<tr>'+th('#')+th('Company')+th('Grade')+th('Score')+th('Mobile')+cats.map(c=>th(c)).join('')+'</tr>';
+  const thc=(c)=>'<th title="'+esc(c)+'" style="text-align:left;padding:8px 6px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid #e2e8f0">'+esc(CATSHORT[c]||c)+'</th>';
+  const head='<tr>'+th('#')+th('Company')+th('Grade')+th('Score')+th('Mobile')+cats.map(thc).join('')+'</tr>';
   const body=rows.map((r,i)=>{
     const cells=cats.map(c=>{ const b=r.sc.byCat[c]; if(!b||!b.t) return '<td style="padding:8px 10px;color:#94a3b8">—</td>'; const p=Math.round(100*b.e/b.t); return '<td style="padding:8px 10px;font-weight:700;color:'+pcol(p)+'">'+p+'%</td>'; }).join('');
     const mob=r.mobile==null?'<td style="padding:8px 10px;color:#94a3b8">—</td>':'<td style="padding:8px 10px;font-weight:700;color:'+gcol(r.mobile)+'">'+r.mobile+'</td>';

@@ -1009,11 +1009,21 @@ function openComparison(items){
   seoOpen();
 }
 document.getElementById("seoPrint").onclick=function(){
-  var title, html;
-  if(seoState.mode==='compare'){ title='SEO Comparison'; html=seoState.compareHTML; }
-  else { if(!seoState.report){toast("Run a report first");return;} title='SEO Report — '+(seoState.report.domain||''); html=SEO.reportHTML(seoState.report); }
+  var title, html, style;
+  if(seoState.mode==='compare'){
+    title='SEO Comparison'; html=seoState.compareHTML;
+    // Landscape + fit-to-width so the wide comparison table prints readably on one page (no manual shrink-to-40%).
+    style='@page{size:landscape;margin:8mm} body{font-family:Inter,Arial,sans-serif;margin:0;color:#0f172a}'
+      +' table{width:100%!important;table-layout:fixed;border-collapse:collapse;font-size:9px!important}'
+      +' th,td{padding:3px 4px!important;white-space:normal!important;word-break:break-word;overflow:hidden;vertical-align:top}'
+      +' th{font-size:8px!important} h1,div{max-width:none!important}';
+  } else {
+    if(!seoState.report){toast("Run a report first");return;}
+    title='SEO Report — '+(seoState.report.domain||''); html=SEO.reportHTML(seoState.report);
+    style='@page{margin:14mm} body{font-family:Inter,Arial,sans-serif;margin:0;color:#0f172a}';
+  }
   var w=window.open('','_blank'); if(!w){toast("Allow pop-ups to print");return;}
-  w.document.write('<html><head><title>'+title+'</title><meta charset="utf-8"><style>body{font-family:Inter,Arial,sans-serif;margin:24px;color:#0f172a}</style></head><body>'+html+'<'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
+  w.document.write('<html><head><title>'+title+'</title><meta charset="utf-8"><style>'+style+'</style></head><body>'+html+'<'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
   w.document.close();
 };
 document.getElementById("seoEmail").onclick=async function(){
