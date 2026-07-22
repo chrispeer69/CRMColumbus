@@ -85,10 +85,11 @@ function aiCrawlerStatus(robots){
   return {blocked, globalBlocked};
 }
 
-async function auditOne(raw){
+async function auditOne(raw, prefetchedHtml){
   let url=raw.trim(); if(!/^https?:\/\//i.test(url)) url='https://'+url;
   const o=new URL(url); const origin=o.origin;
-  const html=await fetchHtml(url);
+  // prefetchedHtml lets a caller supply already-rendered HTML (headless-browser seam) instead of a raw fetch.
+  const html=(prefetchedHtml!=null)?prefetchedHtml:await fetchHtml(url);
   const doc=new DOMParser().parseFromString(html,'text/html');
   const bodyText=(doc.body&&doc.body.textContent||'').trim();
   // JS-rendered shell detection: a page with scripts / SPA markers but almost no readable text is NOT a failed
@@ -432,11 +433,18 @@ function crossPageIssues(pages){
 }
 async function crawlSite(root, opts){
   opts=opts||{}; const max=opts.max||150, conc=opts.concurrency||5, onProgress=opts.onProgress||function(){};
+  // Rendering seam (the "right way", pluggable): if opts.render(url)->htmlString is supplied, JS-rendered
+  // shells get re-audited against the rendered HTML. Off by default → today's crawl runs on raw HTML, no blocker.
+  const render=typeof opts.render==='function'?opts.render:null;
   const disc=await discoverPages(root, max);
-  if(!disc.urls.length) return { error:'No pages discovered (no sitemap and no crawlable links).', root:disc.base };
-  const pages=[]; let i=0, done=0;
+  if(!disc.urls.length) return { error:'No pages discovered (no sitemap and no crawlable links — the site may be a JavaScript app with no sitemap).', root:disc.base };
+  const pages=[]; let i=0, done=0, rendered=0;
   async function worker(){ while(true){ const idx=i++; if(idx>=disc.urls.length)return; const u=disc.urls[idx];
-    try{ const r=await auditOne(u); r._score=score(r); pages.push(r); }
+    try{
+      let r=await auditOne(u);
+      if(r.jsShell && render){ try{ const html=await render(u); if(html){ r=await auditOne(u, html); r._rendered=true; rendered++; } }catch(e){} }
+      r._score=score(r); pages.push(r);
+    }
     catch(e){ pages.push({ url:u, error:(e&&e.reason)||(e&&e.message)||'failed' }); }
     done++; onProgress(done, disc.urls.length, u); } }
   const pool=[]; for(let w=0; w<conc; w++) pool.push(worker()); await Promise.all(pool);
@@ -444,7 +452,52 @@ async function crawlSite(root, opts){
   const scored=ok.filter(p=>p._score&&p._score.score!=null);
   const siteScore=scored.length?Math.round(scored.reduce((a,p)=>a+p._score.score,0)/scored.length):null;
   return { root:disc.base, siteScore, crossPage:crossPageIssues(ok), pages,
-    coverage:{ discovered:disc.total, audited:ok.length, failed:pages.length-ok.length, capped:disc.capped, cap:max, via:disc.via } };
+    coverage:{ discovered:disc.total, audited:ok.length, failed:pages.length-ok.length, capped:disc.capped, cap:max, via:disc.via, rendered:rendered, renderAvailable:!!render } };
 }
-window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, discoverPages, crawlSite, crossPageIssues, BRAND };
+// Site-level report (branded) built from a crawlSite() result.
+function siteReportHTML(res){
+  if(!res||res.error) return '<p style="color:#dc2626;font-family:Inter,Arial,sans-serif">Crawl failed: '+esc(res&&res.error||'unknown')+'</p>';
+  const F="font-family:'Inter',system-ui,Arial,sans-serif;color:#0f172a";
+  const cov=res.coverage||{}; const cp=res.crossPage||{};
+  const scol=s=> s==null?'#94a3b8':s>=90?'#16a34a':s>=80?'#65a30d':s>=70?'#f59e0b':s>=55?'#f97316':'#dc2626';
+  const ok=(res.pages||[]).filter(p=>!p.error);
+  // site-level category averages (for per-engine framing)
+  const catAgg={}; ok.forEach(p=>{ const bc=p._score&&p._score.byCat||{}; Object.keys(bc).forEach(c=>{ catAgg[c]=catAgg[c]||{e:0,t:0}; catAgg[c].e+=bc[c].e; catAgg[c].t+=bc[c].t; }); });
+  const catPct=c=>catAgg[c]&&catAgg[c].t?Math.round(100*catAgg[c].e/catAgg[c].t):null;
+  const jsCount=(cp.jsRendered||[]).length;
+  const aiPct=catPct('AI Search & Answer Engines');
+  const engine=(label,val,note)=>'<div style="flex:1;min-width:150px;border:1px solid #e2e8f0;border-radius:8px;padding:12px"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">'+label+'</div><div style="font-size:24px;font-weight:800;color:'+scol(val)+'">'+(val==null?'—':val)+(val==null?'':'%')+'</div><div style="font-size:12px;color:#64748b;margin-top:2px">'+note+'</div></div>';
+  const issue=(title,arr,fmt)=>{ arr=arr||[]; if(!arr.length) return ''; const items=arr.slice(0,8).map(fmt||(u=>esc(String(u)))).join('<br>'); return '<div style="border:1px solid #fee2e2;background:#fff7f7;border-radius:8px;padding:10px 12px;margin:0 0 8px"><div style="font-weight:800;color:#b91c1c">'+esc(title)+' ('+arr.length+')</div><div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.6">'+items+(arr.length>8?'<br>…and '+(arr.length-8)+' more':'')+'</div></div>'; };
+  const pageRows=ok.slice(0,60).map(p=>{ var s=p._score||{}; return '<tr style="border-bottom:1px solid #eef2f7"><td style="padding:5px 8px;font-weight:700;color:'+scol(s.score)+'">'+(s.grade||'?')+(s.score!=null?' '+s.score:'')+'</td><td style="padding:5px 8px;font-size:12px">'+esc(p.url.replace(res.root,'')||'/')+'</td><td style="padding:5px 8px;font-size:12px;color:#64748b">'+(p.words||0)+'w'+(p.jsShell?' · JS':'')+(p._rendered?' · rendered':'')+'</td></tr>'; }).join('');
+  return '<div style="'+F+'">'
+    +'<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:14px"><div style="font-size:20px;font-weight:800">'+esc(BRAND.name)+' — Full-Site SEO &amp; AI Search Audit</div><div style="color:#64748b;font-size:13px">'+esc(res.root)+'</div></div>'
+    // Honest coverage line
+    +'<div style="font-size:13px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:14px">'
+      +'<b>Coverage:</b> audited <b>'+cov.audited+'</b> of <b>'+cov.discovered+'</b> pages found'+(cov.capped?(' (capped at '+cov.cap+' — more exist)'):'')+' · discovery via <b>'+esc(cov.via||'?')+'</b>'+(cov.failed?(' · '+cov.failed+' failed to load'):'')+(cov.renderAvailable?(' · '+cov.rendered+' JS pages rendered'):' · JS-rendering off (raw HTML only)')+'.'
+    +'</div>'
+    +'<div style="font-size:15px;margin-bottom:6px"><b>Site score:</b> <span style="font-size:26px;font-weight:800;color:'+scol(res.siteScore)+'">'+(res.siteScore==null?'—':res.siteScore)+'</span> / 100 (average across audited pages)</div>'
+    // Per-engine readiness (derived, basis stated)
+    +'<h3 style="margin:18px 0 8px;font-size:15px">Readiness by search engine</h3>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
+      +engine('Google', res.siteScore, 'Overall on-page + technical (Google renders JS).')
+      +engine('Bing', res.siteScore==null?null:Math.max(0,res.siteScore-(jsCount?Math.min(25,jsCount*3):0)), jsCount?(jsCount+' JS-only pages hurt Bing more'):'Reads mostly raw HTML.')
+      +engine('AI Search', aiPct, jsCount?(jsCount+' pages invisible to AI (JS-only)'):'ChatGPT/Perplexity/AI Overviews.')
+    +'</div>'
+    // Cross-page findings (the headline value)
+    +'<h3 style="margin:20px 0 8px;font-size:15px">Site-wide issues (what a single-page scan misses)</h3>'
+    +(function(){ var out='';
+      out+=issue('Pages sharing duplicate body content', cp.duplicateBodies, g=>g.urls.length+' pages: '+esc(g.urls.slice(0,3).map(u=>u.replace(res.root,'')).join(', ')));
+      out+=issue('Duplicate page titles', cp.duplicateTitles, g=>'"'+esc(g.value)+'" — '+g.urls.length+' pages');
+      out+=issue('Duplicate H1 headings', cp.duplicateH1, g=>'"'+esc(g.value)+'" — '+g.urls.length+' pages');
+      out+=issue('Title doesn’t match page content', cp.titleBodyMismatch, u=>esc(u.replace(res.root,'')||'/'));
+      out+=issue('Thin content (under 300 words)', cp.thin, o=>esc(o.url.replace(res.root,'')||'/')+' — '+o.words+'w');
+      out+=issue('JavaScript-rendered (invisible to AI/Bing)', cp.jsRendered, u=>esc(u.replace(res.root,'')||'/'));
+      out+=issue('Missing H1', cp.missingH1, u=>esc(u.replace(res.root,'')||'/'));
+      return out||'<div style="color:#16a34a;font-size:13px">No site-wide issues detected across audited pages.</div>'; })()
+    // Per-page table
+    +'<h3 style="margin:20px 0 8px;font-size:15px">Per-page scores ('+ok.length+')</h3>'
+    +'<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:13px"><tr><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Grade</th><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Page</th><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Notes</th></tr>'+pageRows+'</table>'+(ok.length>60?'<div style="font-size:12px;color:#64748b;margin-top:6px">Showing first 60 of '+ok.length+'.</div>':'')+'</div>'
+  +'</div>';
+}
+window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, discoverPages, crawlSite, crossPageIssues, siteReportHTML, BRAND };
 })();
