@@ -89,7 +89,9 @@ async function auditOne(raw, prefetchedHtml){
   let url=raw.trim(); if(!/^https?:\/\//i.test(url)) url='https://'+url;
   const o=new URL(url); const origin=o.origin;
   // prefetchedHtml lets a caller supply already-rendered HTML (headless-browser seam) instead of a raw fetch.
+  const _t0=Date.now();
   const html=(prefetchedHtml!=null)?prefetchedHtml:await fetchHtml(url);
+  const loadMs=(prefetchedHtml!=null)?null:(Date.now()-_t0); // server response time (measured during fetch)
   const doc=new DOMParser().parseFromString(html,'text/html');
   const bodyText=(doc.body&&doc.body.textContent||'').trim();
   // JS-rendered shell detection: a page with scripts / SPA markers but almost no readable text is NOT a failed
@@ -174,7 +176,7 @@ async function auditOne(raw, prefetchedHtml){
   add(AISEARCH,'Semantic main-content region',2, hasMain?'pass':'warn', hasMain?'Uses <main> / <article>':'No <main> or <article>','Helps AI crawlers find your real content.','Wrap primary content in <main> or <article>.');
   add(AISEARCH,'Content readable without JavaScript',6, jsShell?'fail':'pass', jsShell?('Only ~'+bodyText.length+' characters of text in the raw HTML — this page is JavaScript-rendered'):(words+' words of readable text in the raw HTML'),'Google can render JavaScript, but AI answer engines (ChatGPT, Perplexity, Google AI Overviews) and many crawlers do NOT. If your content only appears after JavaScript runs, they see a near-empty page and cannot read or recommend you.','Serve your main content, headings and business info in the initial HTML via server-side rendering (SSR), static generation, or prerendering.');
   return { url, domain:o.hostname, origin, timestamp:new Date().toLocaleString(), ssl, checks, tracking, schemaTypes,
-    title, h1text:(h1[0]&&h1[0].textContent||'').trim(), desc, words, jsShell,
+    title, h1text:(h1[0]&&h1[0].textContent||'').trim(), desc, words, jsShell, loadMs,
     bodySig:bodyText.slice(0,600).replace(/\s+/g,' ').toLowerCase().trim(),
     stats:{images:imgs.length, scripts:doc.querySelectorAll('script').length, stylesheets:doc.querySelectorAll('link[rel="stylesheet"]').length, sizeKb, words} };
 }
@@ -469,6 +471,12 @@ async function crawlSite(root, opts){
   const ok=pages.filter(p=>!p.error);
   const scored=ok.filter(p=>p._score&&p._score.score!=null);
   const siteScore=scored.length?Math.round(scored.reduce((a,p)=>a+p._score.score,0)/scored.length):null;
+  // Server speed — response time per page (a top ranking + crawl-budget factor).
+  const times=ok.map(p=>p.loadMs).filter(v=>v!=null);
+  let perf=null;
+  if(times.length){ const sorted=times.slice().sort((a,b)=>a-b); const avg=Math.round(times.reduce((a,b)=>a+b,0)/times.length);
+    perf={ avg, median:sorted[Math.floor(sorted.length/2)], max:sorted[sorted.length-1], count:times.length,
+      slow:ok.filter(p=>p.loadMs!=null&&p.loadMs>2000).map(p=>({url:p.url,ms:p.loadMs})).sort((a,b)=>b.ms-a.ms) }; }
   // Phase 2 — local/off-site: look up the Google Business Profile (rating, reviews, NAP) when opts.places is supplied.
   let local=null;
   if(typeof opts.places==='function'){
@@ -481,7 +489,7 @@ async function crawlSite(root, opts){
         : { found:false, query:bizName };
     }catch(e){ local=null; }
   }
-  return { root:disc.base, siteScore, local, crossPage:crossPageIssues(ok), pages,
+  return { root:disc.base, siteScore, perf, local, crossPage:crossPageIssues(ok), pages,
     coverage:{ discovered:disc.total, audited:ok.length, failed:pages.length-ok.length, capped:disc.capped, cap:max, via:disc.via, rendered:rendered, renderAvailable:!!render } };
 }
 // Site-level report (branded) built from a crawlSite() result.
@@ -500,6 +508,20 @@ function siteReportHTML(res){
   const issue=(title,arr,fmt)=>{ arr=arr||[]; if(!arr.length) return ''; const items=arr.slice(0,8).map(fmt||(u=>esc(String(u)))).join('<br>'); return '<div style="border:1px solid #fee2e2;background:#fff7f7;border-radius:8px;padding:10px 12px;margin:0 0 8px"><div style="font-weight:800;color:#b91c1c">'+esc(title)+' ('+arr.length+')</div><div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.6">'+items+(arr.length>8?'<br>…and '+(arr.length-8)+' more':'')+'</div></div>'; };
   const pageRows=ok.slice(0,60).map(p=>{ var s=p._score||{}; return '<tr style="border-bottom:1px solid #eef2f7"><td style="padding:5px 8px;font-weight:700;color:'+scol(s.score)+'">'+(s.grade||'?')+(s.score!=null?' '+s.score:'')+'</td><td style="padding:5px 8px;font-size:12px">'+esc(p.url.replace(res.root,'')||'/')+'</td><td style="padding:5px 8px;font-size:12px;color:#64748b">'+(p.words||0)+'w'+(p.jsShell?' · JS':'')+(p._rendered?' · rendered':'')+'</td></tr>'; }).join('');
   // Local presence & reviews (Google Business Profile) — Phase 2
+  // Server speed panel — response time is a ranking + crawl-budget factor
+  const pf=res.perf;
+  const speedHTML = !pf ? '' : (function(){
+    const v=pf.avg, col= v<800?'#16a34a':v<1800?'#f59e0b':'#dc2626';
+    const verdict= v<800?'Fast — good server response.':v<1800?'Moderate — slower than ideal; worth improving.':'Slow — this is hurting rankings and crawl budget. Likely the biggest technical problem.';
+    const fmt=ms=>ms>=1000?(ms/1000).toFixed(1)+'s':ms+'ms';
+    return '<h3 style="margin:18px 0 8px;font-size:15px">Server speed (how fast pages respond)</h3>'
+      +'<div style="border:2px solid '+col+';border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.8">'
+        +'<div style="font-size:15px"><b>Average page response: <span style="color:'+col+'">'+fmt(v)+'</span></b> &nbsp;·&nbsp; median '+fmt(pf.median)+' &nbsp;·&nbsp; slowest '+fmt(pf.max)+' &nbsp;<span style="color:#64748b">(across '+pf.count+' pages)</span></div>'
+        +'<div style="color:'+col+';font-weight:700;margin-top:2px">'+verdict+'</div>'
+        +'<div style="font-size:12px;color:#64748b;margin-top:4px">Measured live while crawling. Google treats slow server response (TTFB) as a ranking signal, and a slow site gets crawled less often — so pages get found and indexed slower.</div>'
+        +((pf.slow&&pf.slow.length)?('<div style="margin-top:8px"><b style="color:#b91c1c">Slowest pages (over 2s):</b><div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.7">'+pf.slow.slice(0,8).map(o=>esc(o.url.replace(res.root,'')||'/')+' — <b>'+fmt(o.ms)+'</b>').join('<br>')+(pf.slow.length>8?'<br>…and '+(pf.slow.length-8)+' more':'')+'</div></div>'):'')
+      +'</div>';
+  })();
   const loc=res.local;
   const rcol=r=> r>=4.5?'#16a34a':r>=4?'#65a30d':r>=3?'#f59e0b':'#dc2626';
   const localHTML = !loc ? '' : ('<h3 style="margin:20px 0 8px;font-size:15px">Local presence &amp; reviews (Google)</h3>'
@@ -519,7 +541,8 @@ function siteReportHTML(res){
       +'<b>Coverage:</b> audited <b>'+cov.audited+'</b> of <b>'+cov.discovered+'</b> pages found'+(cov.capped?(' (capped at '+cov.cap+' — more exist)'):'')+' · discovery via <b>'+esc(cov.via||'?')+'</b>'+(cov.failed?(' · '+cov.failed+' failed to load'):'')+(cov.renderAvailable?(' · '+cov.rendered+' JS pages rendered'):' · JS-rendering off (raw HTML only)')+'.'
     +'</div>'
     +'<div style="font-size:15px;margin-bottom:6px"><b>Site score:</b> <span style="font-size:26px;font-weight:800;color:'+scol(res.siteScore)+'">'+(res.siteScore==null?'—':res.siteScore)+'</span> / 100 (average across audited pages)</div>'
-    // Per-engine readiness (derived, basis stated)
+    +speedHTML
+    // Per-engine readiness (basis stated)
     +'<h3 style="margin:18px 0 8px;font-size:15px">Readiness by search engine</h3>'
     +'<div style="display:flex;gap:10px;flex-wrap:wrap">'
       +engine('Google', res.siteScore, 'Overall on-page + technical (Google renders JS).')
