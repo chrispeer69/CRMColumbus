@@ -357,7 +357,28 @@ app.get('/api/proxy', requireAuth, async (req, res) => {
     res.status(r.status).type('text/plain; charset=utf-8').send(body);
   } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
 });
-app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '', emailEnabled: !!process.env.RESEND_API_KEY, stripeEnabled: !!process.env.STRIPE_SECRET_KEY, reportPriceCents: REPORT_PRICE_CENTS }));
+// Headless rendering (JS sites) via a rendering API — key stays server-side. Off until RENDER_API_KEY is set.
+app.get('/api/render', requireAuth, async (req, res) => {
+  const key = process.env.RENDER_API_KEY;
+  if (!key) return res.status(503).send('render_not_configured');
+  const target = req.query.url;
+  if (!target) return res.status(400).send('missing url');
+  let u; try { u = new URL(target); } catch (e) { return res.status(400).send('bad url'); }
+  if (!/^https?:$/.test(u.protocol)) return res.status(400).send('only http/https');
+  if (isPrivateHost(u.hostname)) return res.status(403).send('blocked host');
+  const provider = (process.env.RENDER_PROVIDER || 'scrapingbee').toLowerCase();
+  const api = provider === 'scraperapi'
+    ? 'https://api.scraperapi.com/?api_key=' + encodeURIComponent(key) + '&render=true&url=' + encodeURIComponent(u.href)
+    : 'https://app.scrapingbee.com/api/v1/?api_key=' + encodeURIComponent(key) + '&render_js=true&url=' + encodeURIComponent(u.href);
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const r = await fetch(api, { signal: ctrl.signal });
+    const body = await r.text();
+    res.set('Access-Control-Allow-Origin', '*');
+    res.status(r.ok ? 200 : 502).type('text/plain; charset=utf-8').send(body);
+  } catch (e) { res.status(502).send('render failed'); } finally { clearTimeout(t); }
+});
+app.get('/api/seo-config', requireAuth, (req, res) => res.json({ psiKey: process.env.PAGESPEED_KEY || '', emailEnabled: !!process.env.RESEND_API_KEY, stripeEnabled: !!process.env.STRIPE_SECRET_KEY, reportPriceCents: REPORT_PRICE_CENTS, renderEnabled: !!process.env.RENDER_API_KEY }));
 async function sendEmail({ to, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, error: 'email_not_configured' };

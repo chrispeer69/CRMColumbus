@@ -450,9 +450,10 @@
     <div class="mbox" style="width:860px;max-width:100%">
       <h3 id="seoTitle">SEO &amp; AI Search Report</h3>
       <div class="mb">
-        <div id="seoToolBar" style="display:flex;gap:8px;margin-bottom:12px">
-          <input id="seoUrl" placeholder="example.com" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:11px;font-size:15px">
-          <button class="btn primary" id="seoRun">Run audit</button>
+        <div id="seoToolBar" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <input id="seoUrl" placeholder="example.com" style="flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:11px;font-size:15px">
+          <button class="btn primary" id="seoRun">Audit 1 page</button>
+          <button class="btn" id="seoCrawl" style="background:#0b8043;border-color:#0b8043;color:#fff">🌐 Crawl entire site</button>
         </div>
         <div id="seoBody" style="background:#fff;border-radius:10px;padding:20px;max-height:62vh;overflow:auto"><div class="hint" style="color:#64748b">Enter a website above and tap <b>Run audit</b>.</div></div>
       </div>
@@ -721,7 +722,7 @@ document.getElementById("nearClose").onclick=function(){document.getElementById(
 window.__open=openDrawer;
 window.wlOpen=function(id){ document.getElementById("wlModal").classList.remove("open"); openDrawer(id); };
 window.viewAudit=async function(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} };
-fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';}).catch(function(){});
+fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';window.__RENDER=!!(c&&c.renderEnabled);}).catch(function(){});
 function renderSeo(b){
   var el=document.getElementById("drSeo"); if(!el)return;
   if(b.last_report){
@@ -742,11 +743,13 @@ function renderSeo(b){
 }
 async function viewAudit(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} }
 function saveReportAsDoc(){
-  if(!seoState.report){toast("Run a report first");return;}
-  var r=seoState.report;
-  var html='<!doctype html><html><head><meta charset="utf-8"><title>SEO Report — '+r.domain+'</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Inter,Arial,sans-serif;margin:20px;color:#0f172a;background:#fff}</style></head><body>'+SEO.reportHTML(r)+'</body></html>';
+  var inner, name, slug;
+  if(seoState.mode==='site' && seoState.siteResult){ inner=SEO.siteReportHTML(seoState.siteResult); name="Full-site SEO Audit — "+seoState.siteResult.root; slug=(seoState.siteResult.root||'site').replace(/[^a-z0-9]/gi,'-'); }
+  else if(seoState.report){ var r=seoState.report; inner=SEO.reportHTML(r); name="SEO Report — "+r.domain; slug=r.domain.replace(/[^a-z0-9]/gi,'-'); }
+  else { toast("Run a report first"); return; }
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(name)+'</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Inter,Arial,sans-serif;margin:20px;color:#0f172a;background:#fff}</style></head><body>'+inner+'</body></html>';
   var b64=btoa(unescape(encodeURIComponent(html)));
-  guard(api("/api/docs",{method:"POST",body:{title:"SEO Report — "+r.domain,filename:"seo-report-"+r.domain.replace(/[^a-z0-9]/gi,'-')+".html",mime:"text/html",data_b64:b64}}),"Save failed")
+  guard(api("/api/docs",{method:"POST",body:{title:name,filename:slug+".html",mime:"text/html",data_b64:b64}}),"Save failed")
     .then(function(){ toast("Saved to Documents — text/email it from a shop's Send-a-document."); loadDocs&&loadDocs(); }).catch(function(){});
 }
 function openDrawer(id){
@@ -987,6 +990,22 @@ document.getElementById("seoRun").onclick=async function(){
   try{ var r=await SEO.audit(url,{psiKey:window.__PSI||""}); seoState.report=r; seoState.name=r.domain; document.getElementById("seoBody").innerHTML=SEO.reportHTML(r); }
   catch(e){ document.getElementById("seoBody").innerHTML='<div style="color:#dc2626">Audit failed — the site may block automated access, or the URL is invalid.</div>'; }
 };
+// server-side render adapter (used only when RENDER_API_KEY is set in Railway)
+function renderPage(u){ return fetch('/api/render?url='+encodeURIComponent(u)).then(function(r){ return r.ok?r.text():null; }).catch(function(){ return null; }); }
+document.getElementById("seoCrawl").onclick=async function(){
+  if(!window.SEO){toast("SEO engine still loading");return;}
+  var url=document.getElementById("seoUrl").value.trim(); if(!url){toast("Enter a website");return;}
+  var body=document.getElementById("seoBody");
+  body.innerHTML='<div class="hint" style="color:#64748b">Discovering pages on '+esc(url)+'…</div>';
+  try{
+    var res=await SEO.crawlSite(url,{ max:150, concurrency:6, render:(window.__RENDER?renderPage:null),
+      onProgress:function(d,t,u){ body.innerHTML='<div class="hint" style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,70))+'</span></div>'; } });
+    seoState={mode:'site',siteResult:res,report:null,name:(res&&res.root)||url};
+    document.getElementById("seoTitle").textContent="Full-site audit — "+((res&&res.root)||url);
+    document.getElementById("seoAddCrm").style.display="none"; document.getElementById("seoEmail").style.display="none"; document.getElementById("seoSaveDoc").style.display="inline-block";
+    body.innerHTML=SEO.siteReportHTML(res);
+  }catch(e){ body.innerHTML='<div style="color:#dc2626">Crawl failed — '+esc(e&&e.message||'error')+'</div>'; }
+};
 function openSeoReport(r, shopId, name){
   seoState={report:r,shopId:shopId||null,name:name||(r&&r.domain)||''};
   document.getElementById("seoTitle").textContent="SEO Report — "+(name||(r&&r.domain)||"");
@@ -1017,6 +1036,9 @@ document.getElementById("seoPrint").onclick=function(){
       +' table{width:100%!important;table-layout:fixed;border-collapse:collapse;font-size:9px!important}'
       +' th,td{padding:3px 4px!important;white-space:normal!important;word-break:break-word;overflow:hidden;vertical-align:top}'
       +' th{font-size:8px!important} h1,div{max-width:none!important}';
+  } else if(seoState.mode==='site'){
+    title='Full-site SEO Audit'; html=SEO.siteReportHTML(seoState.siteResult);
+    style='@page{margin:12mm} body{font-family:Inter,Arial,sans-serif;margin:0;color:#0f172a} table{border-collapse:collapse;width:100%}';
   } else {
     if(!seoState.report){toast("Run a report first");return;}
     title='SEO Report — '+(seoState.report.domain||''); html=SEO.reportHTML(seoState.report);

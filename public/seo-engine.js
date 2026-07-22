@@ -394,11 +394,14 @@ function comparisonHTML(items){
 }
 // ---------- Whole-site crawl (SEO Analyzer v2, Phase 1) ----------
 // Discover every page (sitemap first, else link-crawl the homepage), capped and reported honestly.
-async function discoverPages(root, max){
+async function discoverPages(root, max, render){
   max=max||150; let base;
   try{ base=new URL(/^https?:\/\//i.test(root)?root:'https://'+root).origin; }catch(e){ return {base:root,urls:[],total:0,capped:false,via:'error'}; }
   const grab=async(u)=>{ try{ return (await fetchAux(u))||''; }catch(e){ return ''; } };
   const locRe=/<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+  const linksIn=(html)=>[...new Set([...String(html).matchAll(/href=["']([^"'#]+)["']/gi)].map(m=>m[1])
+      .map(h=>{ try{ return new URL(h, base+'/').href.split('#')[0]; }catch(e){ return null; } })
+      .filter(u=>u && u.indexOf(base)===0 && !/\.(png|jpe?g|gif|svg|css|js|pdf|zip|ico|webp|mp4|woff2?)(\?|$)/i.test(u)))];
   let xml=await grab(base+'/sitemap.xml');
   let locs=[...String(xml).matchAll(locRe)].map(m=>m[1]);
   const children=locs.filter(u=>/\.xml(\?|$)/i.test(u));
@@ -407,11 +410,10 @@ async function discoverPages(root, max){
     let all=[]; for(const c of children.slice(0,20)){ const cx=await grab(c); all=all.concat([...String(cx).matchAll(locRe)].map(m=>m[1])); if(all.length>max*3)break; } locs=all;
   }
   let urls=[...new Set(locs.filter(u=>/^https?:\/\//i.test(u) && !/\.xml(\?|$)/i.test(u)))];
-  if(!urls.length){ // fallback: internal links off the homepage
-    via='link-crawl'; const home=await grab(base+'/');
-    const hrefs=[...String(home).matchAll(/href=["']([^"'#]+)["']/gi)].map(m=>m[1]);
-    urls=[...new Set(hrefs.map(h=>{ try{ return new URL(h, base+'/').href.split('#')[0]; }catch(e){ return null; } })
-      .filter(u=>u && u.indexOf(base)===0 && !/\.(png|jpe?g|gif|svg|css|js|pdf|zip|ico|webp|mp4|woff2?)(\?|$)/i.test(u)))];
+  if(!urls.length){ // fallback: internal links off the homepage (raw HTML)
+    via='link-crawl'; let home=await grab(base+'/'); urls=linksIn(home);
+    // JS-only nav yields ~no links in raw HTML — if a renderer is available, render the homepage to get the real nav.
+    if(urls.length<3 && render){ try{ const rh=await render(base+'/'); if(rh){ const rlinks=linksIn(rh); if(rlinks.length>urls.length){ urls=rlinks; via='link-crawl (rendered)'; } } }catch(e){} }
     urls.unshift(base+'/'); urls=[...new Set(urls)];
   }
   urls=[...new Set(urls.map(u=>u.split('#')[0]).filter(Boolean))];
@@ -436,7 +438,7 @@ async function crawlSite(root, opts){
   // Rendering seam (the "right way", pluggable): if opts.render(url)->htmlString is supplied, JS-rendered
   // shells get re-audited against the rendered HTML. Off by default → today's crawl runs on raw HTML, no blocker.
   const render=typeof opts.render==='function'?opts.render:null;
-  const disc=await discoverPages(root, max);
+  const disc=await discoverPages(root, max, render);
   if(!disc.urls.length) return { error:'No pages discovered (no sitemap and no crawlable links — the site may be a JavaScript app with no sitemap).', root:disc.base };
   const pages=[]; let i=0, done=0, rendered=0;
   async function worker(){ while(true){ const idx=i++; if(idx>=disc.urls.length)return; const u=disc.urls[idx];
