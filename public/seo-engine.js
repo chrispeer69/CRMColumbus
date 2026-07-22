@@ -173,6 +173,8 @@ async function auditOne(raw){
   add(AISEARCH,'Semantic main-content region',2, hasMain?'pass':'warn', hasMain?'Uses <main> / <article>':'No <main> or <article>','Helps AI crawlers find your real content.','Wrap primary content in <main> or <article>.');
   add(AISEARCH,'Content readable without JavaScript',6, jsShell?'fail':'pass', jsShell?('Only ~'+bodyText.length+' characters of text in the raw HTML — this page is JavaScript-rendered'):(words+' words of readable text in the raw HTML'),'Google can render JavaScript, but AI answer engines (ChatGPT, Perplexity, Google AI Overviews) and many crawlers do NOT. If your content only appears after JavaScript runs, they see a near-empty page and cannot read or recommend you.','Serve your main content, headings and business info in the initial HTML via server-side rendering (SSR), static generation, or prerendering.');
   return { url, domain:o.hostname, origin, timestamp:new Date().toLocaleString(), ssl, checks, tracking, schemaTypes,
+    title, h1text:(h1[0]&&h1[0].textContent||'').trim(), desc, words, jsShell,
+    bodySig:bodyText.slice(0,600).replace(/\s+/g,' ').toLowerCase().trim(),
     stats:{images:imgs.length, scripts:doc.querySelectorAll('script').length, stylesheets:doc.querySelectorAll('link[rel="stylesheet"]').length, sizeKb, words} };
 }
 async function addAux(r){
@@ -389,5 +391,60 @@ function comparisonHTML(items){
     +'<div style="font-size:12px;color:#64748b;margin-top:10px">Ranked best to worst by overall score. Green ≥80% · amber 60–79% · red under 60%. The lowest-ranked businesses are your strongest sales prospects.</div>'
   +'</div>';
 }
-window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, BRAND };
+// ---------- Whole-site crawl (SEO Analyzer v2, Phase 1) ----------
+// Discover every page (sitemap first, else link-crawl the homepage), capped and reported honestly.
+async function discoverPages(root, max){
+  max=max||150; let base;
+  try{ base=new URL(/^https?:\/\//i.test(root)?root:'https://'+root).origin; }catch(e){ return {base:root,urls:[],total:0,capped:false,via:'error'}; }
+  const grab=async(u)=>{ try{ return (await fetchAux(u))||''; }catch(e){ return ''; } };
+  const locRe=/<loc>\s*([^<\s]+)\s*<\/loc>/gi;
+  let xml=await grab(base+'/sitemap.xml');
+  let locs=[...String(xml).matchAll(locRe)].map(m=>m[1]);
+  const children=locs.filter(u=>/\.xml(\?|$)/i.test(u));
+  let via='sitemap';
+  if(children.length && children.length>=locs.length-1){ // sitemap index → pull child sitemaps
+    let all=[]; for(const c of children.slice(0,20)){ const cx=await grab(c); all=all.concat([...String(cx).matchAll(locRe)].map(m=>m[1])); if(all.length>max*3)break; } locs=all;
+  }
+  let urls=[...new Set(locs.filter(u=>/^https?:\/\//i.test(u) && !/\.xml(\?|$)/i.test(u)))];
+  if(!urls.length){ // fallback: internal links off the homepage
+    via='link-crawl'; const home=await grab(base+'/');
+    const hrefs=[...String(home).matchAll(/href=["']([^"'#]+)["']/gi)].map(m=>m[1]);
+    urls=[...new Set(hrefs.map(h=>{ try{ return new URL(h, base+'/').href.split('#')[0]; }catch(e){ return null; } })
+      .filter(u=>u && u.indexOf(base)===0 && !/\.(png|jpe?g|gif|svg|css|js|pdf|zip|ico|webp|mp4|woff2?)(\?|$)/i.test(u)))];
+    urls.unshift(base+'/'); urls=[...new Set(urls)];
+  }
+  urls=[...new Set(urls.map(u=>u.split('#')[0]).filter(Boolean))];
+  return { base, urls:urls.slice(0,max), total:urls.length, capped:urls.length>max, via };
+}
+function crossPageIssues(pages){
+  const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+  const group=(key)=>{ const m={}; pages.forEach(p=>{ const k=norm(p[key]); if(k)(m[k]=m[k]||[]).push(p.url); }); return Object.keys(m).filter(k=>m[k].length>1).map(k=>({value:k.slice(0,80),urls:m[k]})); };
+  const bodyGroups=(()=>{ const m={}; pages.forEach(p=>{ const k=p.bodySig; if(k)(m[k]=m[k]||[]).push(p.url); }); return Object.keys(m).filter(k=>m[k].length>1).map(k=>({sample:k.slice(0,80),urls:m[k]})); })();
+  const stop=['home','page','service','services','ohio','near','the','and','for','with','your'];
+  const mismatch=pages.filter(p=>{ if(!p.title||!p.bodySig)return false; const ws=norm(p.title).split(/[^a-z0-9]+/).filter(w=>w.length>=4&&stop.indexOf(w)<0); if(!ws.length)return false; return ws.filter(w=>p.bodySig.indexOf(w)>=0).length/ws.length < 0.34; }).map(p=>p.url);
+  return {
+    duplicateTitles:group('title'), duplicateH1:group('h1text'), duplicateBodies:bodyGroups,
+    titleBodyMismatch:mismatch,
+    thin:pages.filter(p=>p.words!=null&&p.words<300).map(p=>({url:p.url,words:p.words})),
+    jsRendered:pages.filter(p=>p.jsShell).map(p=>p.url),
+    missingH1:pages.filter(p=>!p.h1text).map(p=>p.url)
+  };
+}
+async function crawlSite(root, opts){
+  opts=opts||{}; const max=opts.max||150, conc=opts.concurrency||5, onProgress=opts.onProgress||function(){};
+  const disc=await discoverPages(root, max);
+  if(!disc.urls.length) return { error:'No pages discovered (no sitemap and no crawlable links).', root:disc.base };
+  const pages=[]; let i=0, done=0;
+  async function worker(){ while(true){ const idx=i++; if(idx>=disc.urls.length)return; const u=disc.urls[idx];
+    try{ const r=await auditOne(u); r._score=score(r); pages.push(r); }
+    catch(e){ pages.push({ url:u, error:(e&&e.reason)||(e&&e.message)||'failed' }); }
+    done++; onProgress(done, disc.urls.length, u); } }
+  const pool=[]; for(let w=0; w<conc; w++) pool.push(worker()); await Promise.all(pool);
+  const ok=pages.filter(p=>!p.error);
+  const scored=ok.filter(p=>p._score&&p._score.score!=null);
+  const siteScore=scored.length?Math.round(scored.reduce((a,p)=>a+p._score.score,0)/scored.length):null;
+  return { root:disc.base, siteScore, crossPage:crossPageIssues(ok), pages,
+    coverage:{ discovered:disc.total, audited:ok.length, failed:pages.length-ok.length, capped:disc.capped, cap:max, via:disc.via } };
+}
+window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, discoverPages, crawlSite, crossPageIssues, BRAND };
 })();
