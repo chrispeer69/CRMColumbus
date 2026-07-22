@@ -426,9 +426,13 @@ app.get('/api/places', requireAuth, async (req, res) => {
     const ts = await fetch('https://maps.googleapis.com/maps/api/place/textsearch/json?query=' + encodeURIComponent(q) + '&key=' + key).then(r => r.json());
     const first = ts.results && ts.results[0];
     if (!first) return res.json({ found: false });
-    const det = await fetch('https://maps.googleapis.com/maps/api/place/details/json?place_id=' + first.place_id + '&fields=name,website,formatted_phone_number,formatted_address&key=' + key).then(r => r.json());
+    const det = await fetch('https://maps.googleapis.com/maps/api/place/details/json?place_id=' + first.place_id + '&fields=name,website,formatted_phone_number,formatted_address,rating,user_ratings_total,url&key=' + key).then(r => r.json());
     const d = det.result || {};
-    res.json({ found: true, name: d.name || '', website: d.website || '', phone: d.formatted_phone_number || '', address: d.formatted_address || '' });
+    res.json({ found: true, name: d.name || first.name || '', website: d.website || '', phone: d.formatted_phone_number || '',
+      address: d.formatted_address || first.formatted_address || '',
+      rating: (d.rating != null ? d.rating : (first.rating != null ? first.rating : null)),
+      reviews: (d.user_ratings_total != null ? d.user_ratings_total : (first.user_ratings_total != null ? first.user_ratings_total : null)),
+      mapsUrl: d.url || '' });
   } catch (e) { res.status(502).json({ error: 'places_failed' }); }
 });
 app.post('/api/shops/:id/audit', requireAuth, async (req, res, next) => {

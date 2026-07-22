@@ -453,7 +453,19 @@ async function crawlSite(root, opts){
   const ok=pages.filter(p=>!p.error);
   const scored=ok.filter(p=>p._score&&p._score.score!=null);
   const siteScore=scored.length?Math.round(scored.reduce((a,p)=>a+p._score.score,0)/scored.length):null;
-  return { root:disc.base, siteScore, crossPage:crossPageIssues(ok), pages,
+  // Phase 2 — local/off-site: look up the Google Business Profile (rating, reviews, NAP) when opts.places is supplied.
+  let local=null;
+  if(typeof opts.places==='function'){
+    try{
+      const home=ok.find(p=>p.url===disc.base+'/'||p.url===disc.base)||ok[0];
+      const bizName=(home&&home.title?home.title.split(/[|\-–—:·]/)[0].trim():'')||disc.base.replace(/^https?:\/\//,'').replace(/^www\./,'').split('.')[0];
+      const pl=await opts.places(bizName);
+      local=(pl&&(pl.name||pl.rating!=null||pl.address))
+        ? { found:true, name:pl.name||bizName, rating:pl.rating, reviews:pl.reviews, address:pl.address, phone:pl.phone, website:pl.website, mapsUrl:pl.mapsUrl }
+        : { found:false, query:bizName };
+    }catch(e){ local=null; }
+  }
+  return { root:disc.base, siteScore, local, crossPage:crossPageIssues(ok), pages,
     coverage:{ discovered:disc.total, audited:ok.length, failed:pages.length-ok.length, capped:disc.capped, cap:max, via:disc.via, rendered:rendered, renderAvailable:!!render } };
 }
 // Site-level report (branded) built from a crawlSite() result.
@@ -471,6 +483,19 @@ function siteReportHTML(res){
   const engine=(label,val,note)=>'<div style="flex:1;min-width:150px;border:1px solid #e2e8f0;border-radius:8px;padding:12px"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">'+label+'</div><div style="font-size:24px;font-weight:800;color:'+scol(val)+'">'+(val==null?'—':val)+(val==null?'':'%')+'</div><div style="font-size:12px;color:#64748b;margin-top:2px">'+note+'</div></div>';
   const issue=(title,arr,fmt)=>{ arr=arr||[]; if(!arr.length) return ''; const items=arr.slice(0,8).map(fmt||(u=>esc(String(u)))).join('<br>'); return '<div style="border:1px solid #fee2e2;background:#fff7f7;border-radius:8px;padding:10px 12px;margin:0 0 8px"><div style="font-weight:800;color:#b91c1c">'+esc(title)+' ('+arr.length+')</div><div style="font-size:12px;color:#475569;margin-top:4px;line-height:1.6">'+items+(arr.length>8?'<br>…and '+(arr.length-8)+' more':'')+'</div></div>'; };
   const pageRows=ok.slice(0,60).map(p=>{ var s=p._score||{}; return '<tr style="border-bottom:1px solid #eef2f7"><td style="padding:5px 8px;font-weight:700;color:'+scol(s.score)+'">'+(s.grade||'?')+(s.score!=null?' '+s.score:'')+'</td><td style="padding:5px 8px;font-size:12px">'+esc(p.url.replace(res.root,'')||'/')+'</td><td style="padding:5px 8px;font-size:12px;color:#64748b">'+(p.words||0)+'w'+(p.jsShell?' · JS':'')+(p._rendered?' · rendered':'')+'</td></tr>'; }).join('');
+  // Local presence & reviews (Google Business Profile) — Phase 2
+  const loc=res.local;
+  const rcol=r=> r>=4.5?'#16a34a':r>=4?'#65a30d':r>=3?'#f59e0b':'#dc2626';
+  const localHTML = !loc ? '' : ('<h3 style="margin:20px 0 8px;font-size:15px">Local presence &amp; reviews (Google)</h3>'
+    + (loc.found
+      ? '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.8">'
+        +'<div><b>Google Business Profile:</b> found — '+esc(loc.name||'')+'</div>'
+        +'<div><b>Rating:</b> '+(loc.rating!=null?('<b style="color:'+rcol(loc.rating)+'">'+loc.rating+' ★</b>'):'—')+' &nbsp;·&nbsp; <b>'+(loc.reviews!=null?loc.reviews:0)+'</b> reviews'+((loc.reviews!=null&&loc.reviews<20)?' <span style="color:#b45309">(low — reviews are a top local + AI ranking factor)</span>':'')+'</div>'
+        +(loc.address?'<div><b>Address (NAP):</b> '+esc(loc.address)+'</div>':'')
+        +(loc.phone?'<div><b>Phone:</b> '+esc(loc.phone)+'</div>':'')
+        +(loc.mapsUrl?'<div><a href="'+esc(loc.mapsUrl)+'" style="color:#2563eb;text-decoration:none">View on Google Maps →</a></div>':'')
+      +'</div>'
+      : '<div style="border:1px solid #fee2e2;background:#fff7f7;border-radius:8px;padding:12px 14px;font-size:13px;color:#b91c1c">No Google Business Profile match found for "'+esc(loc.query||'')+'". If they should have one, it may be unclaimed/misnamed — a major gap for local &amp; AI search. Claiming and optimizing GBP is high priority.</div>'));
   return '<div style="'+F+'">'
     +'<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:14px"><div style="font-size:20px;font-weight:800">'+esc(BRAND.name)+' — Full-Site SEO &amp; AI Search Audit</div><div style="color:#64748b;font-size:13px">'+esc(res.root)+'</div></div>'
     // Honest coverage line
@@ -499,6 +524,9 @@ function siteReportHTML(res){
     // Per-page table
     +'<h3 style="margin:20px 0 8px;font-size:15px">Per-page scores ('+ok.length+')</h3>'
     +'<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:13px"><tr><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Grade</th><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Page</th><th style="text-align:left;padding:5px 8px;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b">Notes</th></tr>'+pageRows+'</table>'+(ok.length>60?'<div style="font-size:12px;color:#64748b;margin-top:6px">Showing first 60 of '+ok.length+'.</div>':'')+'</div>'
+    +localHTML
+    +aiExplainerHTML()
+    +ctaBlockHTML()
   +'</div>';
 }
 window.SEO = { audit, score, findingsHTML, reportHTML, emailHTML, emailText, comparisonHTML, discoverPages, crawlSite, crossPageIssues, siteReportHTML, BRAND };

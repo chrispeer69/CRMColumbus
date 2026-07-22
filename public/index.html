@@ -999,6 +999,7 @@ document.getElementById("seoCrawl").onclick=async function(){
   body.innerHTML='<div class="hint" style="color:#64748b">Discovering pages on '+esc(url)+'…</div>';
   try{
     var res=await SEO.crawlSite(url,{ max:150, concurrency:6, render:(window.__RENDER?renderPage:null),
+      places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
       onProgress:function(d,t,u){ body.innerHTML='<div class="hint" style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,70))+'</span></div>'; } });
     seoState={mode:'site',siteResult:res,report:null,name:(res&&res.root)||url};
     document.getElementById("seoTitle").textContent="Full-site audit — "+((res&&res.root)||url);
