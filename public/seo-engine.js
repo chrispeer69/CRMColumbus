@@ -437,7 +437,7 @@ function crossPageIssues(pages){
   return {
     duplicateTitles:group('title'), duplicateH1:group('h1text'), duplicateBodies:bodyGroups,
     titleBodyMismatch:mismatch,
-    thin:pages.filter(p=>p.words!=null&&p.words<300).map(p=>({url:p.url,words:p.words})),
+    thin:pages.filter(p=>p.words!=null&&p.words<250).map(p=>({url:p.url,words:p.words})),
     jsRendered:pages.filter(p=>p.jsShell).map(p=>p.url),
     missingH1:pages.filter(p=>!p.h1text).map(p=>p.url)
   };
@@ -518,7 +518,7 @@ function siteReportHTML(res){
       +'<div style="border:2px solid '+col+';border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.8">'
         +'<div style="font-size:15px"><b>Average page response: <span style="color:'+col+'">'+fmt(v)+'</span></b> &nbsp;·&nbsp; median '+fmt(pf.median)+' &nbsp;·&nbsp; slowest '+fmt(pf.max)+' &nbsp;<span style="color:#64748b">(across '+pf.count+' pages)</span></div>'
         +'<div style="color:'+col+';font-weight:700;margin-top:2px">'+verdict+'</div>'
-        +'<div style="font-size:12px;color:#64748b;margin-top:4px">Measured live while crawling. Google treats slow server response (TTFB) as a ranking signal, and a slow site gets crawled less often — so pages get found and indexed slower.</div>'
+        +'<div style="font-size:12px;color:#64748b;margin-top:4px">Measured live while crawling (server + network time to fetch each page). Slow responses mean a slower experience for visitors and search engines, which can hurt rankings and reduce how often your pages get crawled and indexed.</div>'
         +((pf.slow&&pf.slow.length)?('<div style="margin-top:8px"><b style="color:#b91c1c">Slowest pages (over 2s):</b><div style="font-size:12px;color:#475569;margin-top:3px;line-height:1.7">'+pf.slow.slice(0,8).map(o=>esc(o.url.replace(res.root,'')||'/')+' — <b>'+fmt(o.ms)+'</b>').join('<br>')+(pf.slow.length>8?'<br>…and '+(pf.slow.length-8)+' more':'')+'</div></div>'):'')
       +'</div>';
   })();
@@ -556,7 +556,7 @@ function siteReportHTML(res){
       out+=issue('Duplicate page titles', cp.duplicateTitles, g=>'"'+esc(g.value)+'" — '+g.urls.length+' pages');
       out+=issue('Duplicate H1 headings', cp.duplicateH1, g=>'"'+esc(g.value)+'" — '+g.urls.length+' pages');
       out+=issue('Title doesn’t match page content', cp.titleBodyMismatch, u=>esc(u.replace(res.root,'')||'/'));
-      out+=issue('Thin content (under 300 words)', cp.thin, o=>esc(o.url.replace(res.root,'')||'/')+' — '+o.words+'w');
+      out+=issue('Thin content (under 250 words)', cp.thin, o=>esc(o.url.replace(res.root,'')||'/')+' — '+o.words+'w');
       out+=issue('JavaScript-rendered (invisible to AI/Bing)', cp.jsRendered, u=>esc(u.replace(res.root,'')||'/'));
       out+=issue('Missing H1', cp.missingH1, u=>esc(u.replace(res.root,'')||'/'));
       return out||'<div style="color:#16a34a;font-size:13px">No site-wide issues detected across audited pages.</div>'; })()

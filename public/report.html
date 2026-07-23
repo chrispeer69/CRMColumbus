@@ -22,11 +22,12 @@
   var m=location.pathname.match(/^\/r\/([a-z0-9]+)/i); var token=m?m[1]:'';
   var root=document.getElementById('root');
   var sid=new URLSearchParams(location.search).get('session_id');
+  function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function teaser(d){
     var s=(d.summary&&d.summary[0])||{};
-    var col=s.score==null?'#64748b':(s.score>=91?'#16a34a':s.score>=80?'#ea580c':'#dc2626');
+    var col=s.score==null?'#64748b':(s.score>=90?'#16a34a':s.score>=80?'#ea580c':'#dc2626');
     root.innerHTML='<div style="border-bottom:3px solid #0f172a;padding-bottom:12px;margin-bottom:16px"><div style="font-size:22px;font-weight:800">Your SEO &amp; AI Search Report</div><div class="muted" style="font-size:13px">Blue Collar AI, Inc. · AI-Powered Local SEO</div></div>'
-      +(s.domain?'<div style="background:'+col+';color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:16px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+s.domain+' — Grade '+(s.grade||'')+(s.score!=null?(' · '+s.score+'/100'):'')+'</div></div>':'')
+      +(s.domain?'<div style="background:'+col+';color:#fff;border-radius:10px;padding:16px 20px;margin-bottom:16px"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85">Audit result</div><div style="font-size:21px;font-weight:800">'+esc(s.domain)+' — Grade '+esc(s.grade||'')+(s.score!=null?(' · '+(+s.score)+'/100'):'')+'</div></div>':'')
       +'<p style="font-size:15px;line-height:1.6">Unlock the complete, prioritized report — every issue with step-by-step fixes across Google SEO and AI search. Fix your site yourself, at your pace.</p>'
       +'<a class="buy" href="/buy/'+token+'">Unlock the full report — $'+((d.reportPriceCents||4900)/100).toFixed(0)+'</a>'
       +(d.stripeEnabled===false?'<p style="color:#b91c1c;margin-top:12px">Checkout is not set up yet — please contact us.</p>':'')

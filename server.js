@@ -8,7 +8,14 @@ const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || 'changeme';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
+// A random per-boot secret prevents forging the auth cookie from the known default HMAC.
+// (Trade-off: logins reset on restart until SESSION_SECRET is set in Railway.)
+let SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET || SESSION_SECRET === 'dev-secret-change-me') {
+  SESSION_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[security] SESSION_SECRET not set — generated a random one; logins reset on restart. Set SESSION_SECRET in Railway to persist sessions.');
+}
+if (APP_PASSWORD === 'changeme') console.warn('[security] APP_PASSWORD is the default — set a strong APP_PASSWORD in Railway.');
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5433/fieldcrm';
 const REPORT_PRICE_CENTS = parseInt(process.env.REPORT_PRICE_CENTS || '4900', 10);
 function baseUrl(req) { return (process.env.BASE_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, ''); }
@@ -328,26 +335,79 @@ app.get('/api/position', requireAuth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------- SEO audit (Blue Collar AI engine) ---------- */
-function isPrivateHost(hRaw) {
+/* ---------- SEO audit (Blue Collar AI engine) — SSRF-hardened fetch ---------- */
+const dns = require('dns').promises;
+const net = require('net');
+function ipIsPrivate(ipRaw) {
+  let s = String(ipRaw || '').toLowerCase();
+  const m = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/); if (m) s = m[1]; // IPv4-mapped IPv6
+  if (net.isIPv4(s)) {
+    const p = s.split('.').map(Number);
+    if (p.some(n => isNaN(n) || n < 0 || n > 255)) return true;
+    if (p[0] === 0 || p[0] === 127 || p[0] === 10) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 169 && p[1] === 254) return true;              // link-local + cloud metadata
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT 100.64/10
+    if (p[0] === 192 && p[1] === 0 && p[2] === 0) return true;
+    if (p[0] >= 224) return true;                                // multicast / reserved
+    return false;
+  }
+  if (net.isIPv6(s)) {
+    if (s === '::1' || s === '::') return true;
+    if (s.startsWith('fe80') || s.startsWith('fc') || s.startsWith('fd')) return true;
+    return false;
+  }
+  return true;
+}
+function isBlockedHostname(hRaw) {
   const h = String(hRaw || '').toLowerCase().replace(/^\[|\]$/g, '');
   if (!h) return true;
-  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return true;
-  if (h === '169.254.169.254') return true;
-  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (h === '::1' || h.startsWith('fe80') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (/^\d+$/.test(h)) return true;                          // decimal integer IP
+  if (/^0x[0-9a-f.]+$/i.test(h)) return true;                // hex
+  if (/^0[0-7]/.test(h) && /^[0-7.]+$/.test(h)) return true; // octal dotted
   return false;
 }
-app.get('/api/proxy', requireAuth, async (req, res) => {
+function isPrivateHost(hRaw) {
+  if (isBlockedHostname(hRaw)) return true;
+  const h = String(hRaw || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (net.isIP(h)) return ipIsPrivate(h);
+  return false;
+}
+async function assertPublicHost(hostname) {
+  if (isBlockedHostname(hostname)) throw Object.assign(new Error('blocked host'), { code: 403 });
+  if (net.isIP(hostname)) { if (ipIsPrivate(hostname)) throw Object.assign(new Error('blocked host'), { code: 403 }); return; }
+  let addrs; try { addrs = await dns.lookup(hostname, { all: true }); } catch (e) { throw Object.assign(new Error('dns failed'), { code: 502 }); }
+  if (!addrs.length || addrs.some(a => ipIsPrivate(a.address))) throw Object.assign(new Error('blocked host'), { code: 403 });
+}
+async function guardedFetch(target, fetchOpts) {
+  let u; try { u = new URL(target); } catch (e) { throw Object.assign(new Error('bad url'), { code: 400 }); }
+  if (!/^https?:$/.test(u.protocol)) throw Object.assign(new Error('only http/https'), { code: 400 });
+  await assertPublicHost(u.hostname);
+  const r = await fetch(u.href, Object.assign({ redirect: 'follow' }, fetchOpts || {}));
+  try { const fu = new URL(r.url || u.href); if (fu.hostname !== u.hostname) await assertPublicHost(fu.hostname); }
+  catch (e) { throw Object.assign(new Error('blocked host (redirect)'), { code: 403 }); }
+  return r;
+}
+function rateLimit({ windowMs, max }) {
+  const hits = new Map();
+  return function (req, res, next) {
+    const now = Date.now(); const k = req.ip || 'anon';
+    let e = hits.get(k);
+    if (!e || now > e.reset) { e = { count: 0, reset: now + windowMs }; hits.set(k, e); }
+    e.count++;
+    if (hits.size > 5000) { for (const [kk, vv] of hits) { if (now > vv.reset) hits.delete(kk); } }
+    if (e.count > max) { res.set('Retry-After', String(Math.ceil((e.reset - now) / 1000))); return res.status(429).json({ error: 'rate limited' }); }
+    next();
+  };
+}
+app.get('/api/proxy', requireAuth, rateLimit({ windowMs: 60000, max: 120 }), async (req, res) => {
   const target = req.query.url;
   if (!target) return res.status(400).send('missing url');
-  let u; try { u = new URL(target); } catch (e) { return res.status(400).send('bad url'); }
-  if (!/^https?:$/.test(u.protocol)) return res.status(400).send('only http/https');
-  if (isPrivateHost(u.hostname)) return res.status(403).send('blocked host');
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000);
   try {
-    const r = await fetch(u.href, { signal: ctrl.signal, redirect: 'follow', headers: {
+    const r = await guardedFetch(target, { signal: ctrl.signal, headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9',
       'Upgrade-Insecure-Requests': '1', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none',
@@ -355,10 +415,10 @@ app.get('/api/proxy', requireAuth, async (req, res) => {
     const body = await r.text();
     res.set('Access-Control-Allow-Origin', '*');
     res.status(r.status).type('text/plain; charset=utf-8').send(body);
-  } catch (e) { res.status(502).send('fetch failed'); } finally { clearTimeout(t); }
+  } catch (e) { const code = e && e.code ? e.code : 502; res.status(code).send(code === 403 ? 'blocked host' : code === 400 ? 'bad url' : 'fetch failed'); } finally { clearTimeout(t); }
 });
 // Headless rendering (JS sites) via a rendering API — key stays server-side. Off until RENDER_API_KEY is set.
-app.get('/api/render', requireAuth, async (req, res) => {
+app.get('/api/render', requireAuth, rateLimit({ windowMs: 60000, max: 30 }), async (req, res) => {
   const key = process.env.RENDER_API_KEY;
   if (!key) return res.status(503).send('render_not_configured');
   const target = req.query.url;
@@ -395,7 +455,7 @@ async function sendEmail({ to, subject, html, text }) {
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 }
-app.post('/api/send-report', requireAuth, async (req, res) => {
+app.post('/api/send-report', requireAuth, rateLimit({ windowMs: 600000, max: 60 }), async (req, res) => {
   const { to, subject, html, text } = req.body || {};
   if (!to || !/.+@.+\..+/.test(to) || !html) return res.status(400).json({ error: 'to_and_html_required' });
   if (!process.env.RESEND_API_KEY) return res.status(503).json({ error: 'email_not_configured' });
@@ -404,7 +464,7 @@ app.post('/api/send-report', requireAuth, async (req, res) => {
   return res.status(502).json({ error: 'send_failed', detail: (r && (r.body || r.error)) || null });
 });
 // Geocode a place (for radius search centers)
-app.get('/api/geocode', requireAuth, async (req, res) => {
+app.get('/api/geocode', requireAuth, rateLimit({ windowMs: 60000, max: 60 }), async (req, res) => {
   const key = process.env.GOOGLE_MAPS_API_KEY || process.env.PLACES_API_KEY;
   if (!key) return res.status(503).json({ error: 'geocode_not_configured' });
   const q = (req.query.q || '').trim();
@@ -417,7 +477,7 @@ app.get('/api/geocode', requireAuth, async (req, res) => {
   } catch (e) { res.status(502).json({ error: 'geocode_failed' }); }
 });
 // Google Places lookup — find a business's website/phone from name + location (field speed)
-app.get('/api/places', requireAuth, async (req, res) => {
+app.get('/api/places', requireAuth, rateLimit({ windowMs: 60000, max: 60 }), async (req, res) => {
   const key = process.env.PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return res.status(503).json({ error: 'places_not_configured' });
   const q = (req.query.q || '').trim();

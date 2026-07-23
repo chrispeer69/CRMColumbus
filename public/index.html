@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#10151b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -359,7 +359,10 @@
       <div class="save-note" id="drSaved"></div>
 
       <div class="dr-sec">SEO &amp; AI Search audit</div>
-      <button class="btn primary" id="drRunSeo" style="width:100%">Run SEO audit</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" id="drRunSeo" style="flex:1;min-width:130px">Audit home page</button>
+        <button class="btn" id="drCrawl" style="flex:1;min-width:130px;background:#0b8043;border-color:#0b8043;color:#fff">🌐 Crawl entire site</button>
+      </div>
       <div id="drSeo" class="hint" style="margin-top:8px"></div>
 
       <div class="dr-sec">Log a visit</div>
@@ -723,23 +726,27 @@ window.__open=openDrawer;
 window.wlOpen=function(id){ document.getElementById("wlModal").classList.remove("open"); openDrawer(id); };
 window.viewAudit=async function(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} };
 fetch('/api/seo-config').then(function(r){return r.json();}).then(function(c){window.__PSI=(c&&c.psiKey)||'';window.__RENDER=!!(c&&c.renderEnabled);}).catch(function(){});
+// A saved crawl result is distinguishable from a single-page report by its coverage block.
+function seoIsSite(r){ return !!(r && r.coverage); }
+function seoGrade(s){ return s==null?'—':s>=90?'A':s>=80?'B':s>=70?'C':s>=55?'D':'F'; }
 function renderSeo(b){
   var el=document.getElementById("drSeo"); if(!el)return;
   if(b.last_report){
+    var site=seoIsSite(b.last_report);
     var g=b.latest_grade||'', s=(b.latest_score!=null?b.latest_score:'');
-    var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':'#EF5350';
-    el.innerHTML='<div style="font-weight:800;font-size:16px;color:'+col+'">Grade '+g+(s!==''?' · '+s+'/100':'')+'</div>'
+    var col=(b.latest_score>=90)?'#2FBF71':(b.latest_score>=80)?'#FFA726':'#EF5350';
+    el.innerHTML='<div style="font-weight:800;font-size:16px;color:'+col+'">'+(site?'Full-site · ':'')+'Grade '+g+(s!==''?' · '+s+'/100':'')+'</div>'
       +'<div class="hint" style="margin:2px 0 8px">'+(b.last_audit_at?('Last audit '+new Date(b.last_audit_at).toLocaleString()):'')+'</div>'
-      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="drViewReport">View full report</button><button class="btn" id="drEmailReport">✉️ Email report</button><button class="btn" id="drSaveDoc">📄 Save as document</button></div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="drViewReport">View full report</button>'+(site?'':'<button class="btn" id="drEmailReport">✉️ Email report</button>')+'<button class="btn" id="drSaveDoc">📄 Save as document</button></div>'
       +'<div id="drSeoHistory" class="hint" style="margin-top:10px"></div>';
     document.getElementById("drViewReport").onclick=function(){ openSeoReport(b.last_report, b.id, b.name); };
-    document.getElementById("drEmailReport").onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.owner_name||b.name||b.domain||''}; document.getElementById("seoEmail").click(); };
-    document.getElementById("drSaveDoc").onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.name||b.domain||''}; saveReportAsDoc(); };
+    var _eb=document.getElementById("drEmailReport"); if(_eb) _eb.onclick=function(){ seoState={report:b.last_report,shopId:b.id,name:b.owner_name||b.name||b.domain||''}; document.getElementById("seoEmail").click(); };
+    document.getElementById("drSaveDoc").onclick=function(){ seoState= site?{mode:'site',siteResult:b.last_report,shopId:b.id,name:b.name||b.domain||''}:{report:b.last_report,shopId:b.id,name:b.name||b.domain||''}; saveReportAsDoc(); };
     api("/api/shops/"+b.id+"/audits").then(function(rows){
       if(!rows||!rows.length)return; var el2=document.getElementById("drSeoHistory"); if(!el2)return;
       el2.innerHTML='<div style="font-weight:700;margin-bottom:2px">Audit history</div>'+rows.map(function(a){return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--line)"><span>'+new Date(a.created_at).toLocaleDateString()+' — '+(a.grade||'')+(a.score!=null?(' ('+a.score+')'):'')+'</span><button class="btn" style="padding:3px 9px;min-height:0" onclick="viewAudit('+a.id+')">View</button></div>';}).join('');
     }).catch(function(){});
-  } else { el.textContent='No audit yet — tap Run SEO audit.'; }
+  } else { el.textContent='No audit yet — tap Audit home page, or Crawl entire site.'; }
 }
 async function viewAudit(id){ try{ var d=await api("/api/audits/"+id); if(d&&d.report) openSeoReport(d.report, null, d.report.domain); }catch(e){} }
 function saveReportAsDoc(){
@@ -881,6 +888,25 @@ document.getElementById("drRunSeo").onclick=async function(){
     renderSeo(b); toast("Audit saved — Grade "+sc.grade+" ("+sc.score+"/100)");
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Audit failed — the site may block automated access, or the URL is invalid.</span>'; }
 };
+document.getElementById("drCrawl").onclick=async function(){
+  var b=getBiz(currentId);if(!b)return;
+  if(!window.SEO){ toast("SEO engine still loading — try again."); return; }
+  var web=(document.getElementById("drWeb").value||b.web||"").trim();
+  if(!web){ document.getElementById("drSeo").textContent="Finding website…"; web=await findWebsite(); }
+  if(!web){ document.getElementById("drSeo").textContent="Add or find a website first."; return; }
+  var el=document.getElementById("drSeo"); el.innerHTML='<span style="color:#64748b">Discovering pages on '+esc(web)+'…</span>';
+  try{
+    var res=await SEO.crawlSite(web,{ max:150, concurrency:6, render:(window.__RENDER?renderPage:null),
+      places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
+      onProgress:function(d,t,u){ el.innerHTML='<span style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,60))+'</span></span>'; } });
+    if(!res || res.error){ el.innerHTML='<span style="color:#EF5350">Crawl failed — '+esc((res&&res.error)||'the site blocked automated access or has no crawlable pages.')+'</span>'; return; }
+    var s=(res.siteScore==null?null:res.siteScore), g=seoGrade(s);
+    var saved=await guard(api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:res,score:s,grade:g}}),"Save failed");
+    Object.assign(b,saved);
+    renderSeo(b); toast("Full-site audit saved — Grade "+g+(s!=null?(" ("+s+"/100)"):""));
+    openSeoReport(res, b.id, b.name);   // show the crawl report for quick reference
+  }catch(e){ el.innerHTML='<span style="color:#EF5350">Crawl failed — '+esc(e&&e.message||'the site may block automated access.')+'</span>'; }
+};
 /* ---------- Prospect worklist ---------- */
 var wlRows=[]; var wlNote=''; var wlSeq=0;
 function emailOne(v){ v=(v||'').trim(); return /.+@.+\..+/.test(v)?v.toLowerCase():null; }
@@ -939,7 +965,7 @@ function renderWlResults(){
   if(!wlRows.length){ el.innerHTML='<div class="hint">No matches.'+(wlNote?(' '+esc(wlNote)):'')+'</div>'; return; }
   var emCount=wlResultEmails().length;
   el.innerHTML='<div class="hint" style="margin-bottom:6px">'+wlRows.length+' prospects (worst-graded first) · <b>'+emCount+' with an email</b>'+(wlNote?(' — '+esc(wlNote)):'')+'</div>'+wlRows.map(function(b){
-    var g=b.latest_grade||'—'; var col=(b.latest_score>=91)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
+    var g=b.latest_grade||'—'; var col=(b.latest_score>=90)?'#2FBF71':(b.latest_score>=80)?'#FFA726':(b.latest_score!=null?'#EF5350':'var(--muted)');
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px">'
       +'<div style="display:flex;align-items:center;gap:10px;min-width:0">'
         +'<input type="checkbox" class="wlSelCb" value="'+b.id+'" title="Select to compare"'+(b.last_report?'':' disabled')+' style="width:18px;height:18px;flex-shrink:0">'
@@ -1008,7 +1034,17 @@ document.getElementById("seoCrawl").onclick=async function(){
   }catch(e){ body.innerHTML='<div style="color:#dc2626">Crawl failed — '+esc(e&&e.message||'error')+'</div>'; }
 };
 function openSeoReport(r, shopId, name){
-  seoState={report:r,shopId:shopId||null,name:name||(r&&r.domain)||''};
+  if(seoIsSite(r)){   // whole-site crawl result → render the site report (email/add-CRM don't apply)
+    seoState={mode:'site',siteResult:r,report:null,shopId:shopId||null,name:name||(r&&r.root)||''};
+    document.getElementById("seoTitle").textContent="Full-site audit — "+(name||(r&&r.root)||"");
+    document.getElementById("seoToolBar").style.display="none";
+    document.getElementById("seoBody").innerHTML=SEO.siteReportHTML(r);
+    document.getElementById("seoAddCrm").style.display="none";
+    document.getElementById("seoEmail").style.display="none";
+    document.getElementById("seoSaveDoc").style.display="inline-block";
+    seoOpen(); return;
+  }
+  seoState={mode:'report',report:r,shopId:shopId||null,name:name||(r&&r.domain)||''};
   document.getElementById("seoTitle").textContent="SEO Report — "+(name||(r&&r.domain)||"");
   document.getElementById("seoToolBar").style.display="none";
   document.getElementById("seoBody").innerHTML=SEO.reportHTML(r);
