@@ -178,6 +178,7 @@
     <button id="tabDocs">Docs</button>
   </div>
   <button class="btn small" id="btnWorklist" title="Search prospects by grade, industry, city + radius">Search</button>
+  <button class="btn small" id="btnCallList" title="Today's call list — built from audits + reviews">📞 Call List</button>
   <button class="btn small" id="btnSeoTool" title="Run a quick SEO report on any website">SEO Report</button>
   <button class="btn small" id="btnExportMenu">Export ▾</button>
   <button class="btn small" id="btnImport">Import</button>
@@ -365,6 +366,17 @@
       </div>
       <div id="drSeo" class="hint" style="margin-top:8px"></div>
 
+      <div class="dr-sec">Call list</div>
+      <button class="btn" id="drCallToggle" style="width:100%">➕ Add to call list</button>
+      <div id="drCallOpts" style="margin-top:8px;display:none">
+        <div class="chkrow">
+          <label><input type="checkbox" id="drCallCall"> 📞 Call</label>
+          <label><input type="checkbox" id="drCallEmail"> ✉️ Email</label>
+          <label><input type="checkbox" id="drCallMail"> 📦 Mail package</label>
+        </div>
+        <div class="fld"><label>Call-list note (why / the offer)</label><input id="drCallNote" placeholder="e.g. Grade F — no schema, slow mobile; pitch the $49 report"></div>
+      </div>
+
       <div class="dr-sec">Log a visit</div>
       <div class="fld"><label>Date &amp; time</label><input id="vWhen" type="datetime-local"></div>
       <div class="chkrow">
@@ -445,6 +457,21 @@
         <button class="btn" id="wlGmail" style="background:#0b8043;border-color:#0b8043;color:#fff">✉️ Email in Gmail</button>
         <button class="btn" id="wlCompare">⚖ Compare selected</button>
         <button class="btn primary" id="wlRun">Search</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mwrap" id="callModal">
+    <div class="mbox" style="width:900px;max-width:100%">
+      <h3>📞 Call List — today’s outreach</h3>
+      <div class="mb">
+        <div class="hint" style="margin-bottom:8px">Businesses flagged from their audit reports — worst grade first (the biggest opportunities). Call, email, or mail the package, then mark done.</div>
+        <div id="callResults" style="max-height:60vh;overflow:auto"><div class="hint">Loading…</div></div>
+      </div>
+      <div class="mf" style="flex-wrap:wrap;gap:8px">
+        <button class="btn" id="callClose">Close</button>
+        <button class="btn" id="callPrint">🖨 Print list</button>
+        <span class="hint" id="callCount" style="margin-left:auto"></span>
       </div>
     </div>
   </div>
@@ -795,6 +822,7 @@ function openDrawer(id){
   document.getElementById("drCcRate").value=b.cc_rate||"";
   document.getElementById("drCcDetails").style.display=(b.cc_processing==='yes')?'block':'none';
   renderSeo(b);
+  renderCallList(b);
   document.getElementById("drNotes").value=b.notes||"";
   document.getElementById("drSaved").textContent="";
   document.getElementById("vWhen").value=localNow();
@@ -907,6 +935,78 @@ document.getElementById("drCrawl").onclick=async function(){
     openSeoReport(res, b.id, b.name);   // show the crawl report for quick reference
   }catch(e){ el.innerHTML='<span style="color:#EF5350">Crawl failed — '+esc(e&&e.message||'the site may block automated access.')+'</span>'; }
 };
+/* ---------- call list ---------- */
+function renderCallList(b){
+  var btn=document.getElementById("drCallToggle"); if(!btn)return;
+  var on=!!b.on_call_list;
+  btn.textContent = on ? "✓ On call list — tap to remove" : "➕ Add to call list";
+  btn.style.background = on ? "#0b8043" : ""; btn.style.borderColor = on ? "#0b8043" : ""; btn.style.color = on ? "#fff" : "";
+  document.getElementById("drCallOpts").style.display = on ? "block" : "none";
+  var acts=(b.call_actions||"").split(",");
+  document.getElementById("drCallCall").checked = acts.indexOf("call")>=0;
+  document.getElementById("drCallEmail").checked = acts.indexOf("email")>=0;
+  document.getElementById("drCallMail").checked = acts.indexOf("mail")>=0;
+  document.getElementById("drCallNote").value = b.call_list_note||"";
+}
+function callActionsFromUI(){ var a=[]; if(document.getElementById("drCallCall").checked)a.push("call"); if(document.getElementById("drCallEmail").checked)a.push("email"); if(document.getElementById("drCallMail").checked)a.push("mail"); return a; }
+async function saveCallList(b,on){
+  var body={on:on, actions:callActionsFromUI(), note:document.getElementById("drCallNote").value.trim()};
+  var saved=await guard(api("/api/shops/"+b.id+"/call-list",{method:"POST",body:body}),"Call-list save failed");
+  Object.assign(b,saved); renderCallList(b); if(typeof renderList==='function')renderList();
+  return saved;
+}
+document.getElementById("drCallToggle").onclick=async function(){ var b=getBiz(currentId); if(!b)return; var on=!b.on_call_list; await saveCallList(b,on); toast(on?"Added to call list ✓":"Removed from call list"); };
+["drCallCall","drCallEmail","drCallMail"].forEach(function(id){ document.getElementById(id).onchange=function(){ var b=getBiz(currentId); if(b&&b.on_call_list) saveCallList(b,true); }; });
+document.getElementById("drCallNote").onchange=function(){ var b=getBiz(currentId); if(b&&b.on_call_list) saveCallList(b,true); };
+
+var callListRows=[];
+document.getElementById("btnCallList").onclick=function(){ document.getElementById("callModal").classList.add("open"); loadCallList(); };
+document.getElementById("callClose").onclick=function(){ document.getElementById("callModal").classList.remove("open"); };
+async function loadCallList(){
+  var box=document.getElementById("callResults"); box.innerHTML='<div class="hint">Loading…</div>';
+  try{
+    callListRows=(await api("/api/call-list?market="+encodeURIComponent(state.market||"")))||[];
+    document.getElementById("callCount").textContent=callListRows.length+" on the list";
+    box.innerHTML = callListRows.length ? callListRows.map(callRowHTML).join("")
+      : '<div class="hint">Call list is empty. Open a company, review its report, and tap “Add to call list.”</div>';
+  }catch(e){ box.innerHTML='<div style="color:#EF5350">Could not load the call list.</div>'; }
+}
+function callRowHTML(b){
+  var s=b.latest_score, g=b.latest_grade||'—';
+  var col=(s>=90)?'#2FBF71':(s>=80)?'#FFA726':(s!=null?'#EF5350':'var(--muted)');
+  var acts=(b.call_actions||'').split(',').filter(Boolean);
+  var tag=function(k,label){ return acts.indexOf(k)>=0?'<span class="tag yes" style="margin-right:4px">'+label+'</span>':''; };
+  var actTags=tag('call','📞 Call')+tag('email','✉️ Email')+tag('mail','📦 Mail package');
+  var phone=(b.phone||b.owner_phone||b.manager_phone||'').trim();
+  var email=(b.email||b.owner_email||b.manager_email||'').trim();
+  return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 8px">'
+    +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap">'
+      +'<b style="font-size:15px">'+esc(b.name)+'</b>'
+      +'<span style="font-weight:800;color:'+col+'">'+esc(g)+(s!=null?(' · '+s+'/100'):' · not audited')+'</span>'
+    +'</div>'
+    +(b.address?'<div class="hint">'+esc([b.address,b.zip].filter(Boolean).join(', '))+'</div>':'')
+    +'<div style="margin:6px 0">'+(actTags||'<span class="hint">No action set</span>')+'</div>'
+    +(b.call_list_note?'<div class="vn" style="margin:4px 0">'+esc(b.call_list_note)+'</div>':'')
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'
+      +'<button class="btn" style="padding:5px 10px;min-height:0" onclick="window.callOpen('+b.id+')">Open</button>'
+      +(phone?'<a class="btn" style="padding:5px 10px;min-height:0;text-decoration:none" href="tel:'+esc(phone.replace(/[^\d+]/g,''))+'">📞 '+esc(phone)+'</a>':'')
+      +(email?'<button class="btn" style="padding:5px 10px;min-height:0" onclick="window.callEmail('+b.id+')">✉️ Email report</button>':'')
+      +'<button class="btn" style="padding:5px 10px;min-height:0;background:#0b8043;border-color:#0b8043;color:#fff" onclick="window.callDone('+b.id+')">✓ Done</button>'
+    +'</div>'
+  +'</div>';
+}
+window.callOpen=function(id){ document.getElementById("callModal").classList.remove("open"); openDrawer(id); };
+window.callEmail=function(id){ var b=getBiz(id); if(!b){toast("Open the company to email");return;} if(!b.last_report){toast("Run a report first");return;} document.getElementById("callModal").classList.remove("open"); seoState={report:b.last_report,shopId:b.id,name:b.owner_name||b.name||b.domain||''}; document.getElementById("seoEmail").click(); };
+window.callDone=async function(id){ try{ await api("/api/shops/"+id+"/call-list",{method:"POST",body:{on:false}}); var b=getBiz(id); if(b){b.on_call_list=false;} loadCallList(); if(typeof renderList==='function')renderList(); toast("Marked done — off the call list"); }catch(e){ toast("Could not update"); } };
+document.getElementById("callPrint").onclick=function(){
+  if(!callListRows.length){ toast("Call list is empty"); return; }
+  var rows=callListRows.map(function(b){ var acts=(b.call_actions||'').split(',').filter(Boolean).map(function(a){return a==='mail'?'Mail package':a.charAt(0).toUpperCase()+a.slice(1);}).join(', ');
+    return '<tr><td>'+esc(b.name)+'</td><td>'+esc((b.latest_grade||'—')+(b.latest_score!=null?(' '+b.latest_score):''))+'</td><td>'+esc(b.phone||b.owner_phone||'')+'</td><td>'+esc(b.email||b.owner_email||'')+'</td><td>'+esc(acts)+'</td><td>'+esc(b.call_list_note||'')+'</td><td style="width:70px">☐</td></tr>'; }).join('');
+  var w=window.open('','_blank'); if(!w){ toast("Allow pop-ups to print"); return; }
+  w.document.write('<html><head><title>Call List</title><meta charset="utf-8"><style>@page{margin:12mm}body{font-family:Inter,Arial,sans-serif;color:#0f172a}h1{font-size:18px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;vertical-align:top}th{background:#f1f5f9}</style></head><body><h1>Blue Collar AI — Call List ('+callListRows.length+')</h1><table><tr><th>Business</th><th>Grade</th><th>Phone</th><th>Email</th><th>Actions</th><th>Note / offer</th><th>Done</th></tr>'+rows+'</table><'+'script>window.onload=function(){setTimeout(function(){window.print();},250);}<'+'/script></body></html>');
+  w.document.close();
+};
+
 /* ---------- Prospect worklist ---------- */
 var wlRows=[]; var wlNote=''; var wlSeq=0;
 function emailOne(v){ v=(v||'').trim(); return /.+@.+\..+/.test(v)?v.toLowerCase():null; }

@@ -80,7 +80,10 @@ async function init() {
     ADD COLUMN IF NOT EXISTS voice_ai TEXT, ADD COLUMN IF NOT EXISTS voice_ai_provider TEXT, ADD COLUMN IF NOT EXISTS voice_ai_monthly TEXT,
     ADD COLUMN IF NOT EXISTS voice_ai_permin TEXT, ADD COLUMN IF NOT EXISTS voice_ai_setup TEXT,
     ADD COLUMN IF NOT EXISTS cc_processing TEXT, ADD COLUMN IF NOT EXISTS cc_company TEXT, ADD COLUMN IF NOT EXISTS cc_rate TEXT,
-    ADD COLUMN IF NOT EXISTS industry TEXT`);
+    ADD COLUMN IF NOT EXISTS industry TEXT,
+    ADD COLUMN IF NOT EXISTS on_call_list BOOLEAN DEFAULT false, ADD COLUMN IF NOT EXISTS call_list_added_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS call_actions TEXT DEFAULT '', ADD COLUMN IF NOT EXISTS call_list_note TEXT DEFAULT ''`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_shops_call_list ON shops (on_call_list) WHERE on_call_list = true`);
   await pool.query(`CREATE TABLE IF NOT EXISTS audits(
     id SERIAL PRIMARY KEY,
     shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -227,6 +230,38 @@ app.delete('/api/shops/:id', requireAuth, async (req, res, next) => {
   try {
     await pool.query('DELETE FROM shops WHERE id=$1', [+req.params.id]);
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* ---------- call list (outreach queue built from audits + reviews) ---------- */
+// Add/remove a business, with the actions needed (call / email / mail package) + a note.
+app.post('/api/shops/:id/call-list', requireAuth, async (req, res, next) => {
+  try {
+    const on = !!(req.body && req.body.on);
+    const actions = Array.isArray(req.body && req.body.actions)
+      ? req.body.actions.filter(a => ['call', 'email', 'mail'].includes(a)).join(',') : '';
+    const note = String((req.body && req.body.note) || '').slice(0, 500);
+    const { rows } = await pool.query(
+      `UPDATE shops SET on_call_list=$2,
+         call_list_added_at = CASE WHEN $2 AND call_list_added_at IS NULL THEN now()
+                                   WHEN $2 THEN call_list_added_at ELSE NULL END,
+         call_actions=$3, call_list_note=$4, updated_at=now()
+       WHERE id=$1 RETURNING *`,
+      [+req.params.id, on, actions, note]);
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    res.json(rows[0]);
+  } catch (e) { next(e); }
+});
+// The morning list: flagged businesses, worst grade first (scored before un-audited).
+app.get('/api/call-list', requireAuth, async (req, res, next) => {
+  try {
+    const market = req.query.market;
+    const params = []; let where = 's.on_call_list = true';
+    if (market) { params.push(market); where += ' AND s.market_slug = $1'; }
+    const { rows } = await pool.query(
+      `SELECT s.* FROM shops s WHERE ${where}
+       ORDER BY (s.latest_score IS NULL) ASC, s.latest_score ASC, s.call_list_added_at ASC`, params);
+    res.json(rows);
   } catch (e) { next(e); }
 });
 
