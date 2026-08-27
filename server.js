@@ -173,9 +173,17 @@ async function syncToAlliance(shop) {
   let city = '', state = '';
   try {
     const { rows } = await pool.query('SELECT name FROM markets WHERE slug=$1', [shop.market_slug]);
-    if (rows[0] && rows[0].name.includes(',')) {
-      const [c, s] = rows[0].name.split(',');
-      city = c.trim(); state = s.trim();
+    const marketName = rows[0] && rows[0].name.trim();
+    if (marketName) {
+      // Market names are usually "City, ST" but aren't guaranteed to be (e.g. edited
+      // in the UI without a state) — fall back to the whole name as city rather than
+      // silently sending nothing.
+      if (marketName.includes(',')) {
+        const [c, s] = marketName.split(',');
+        city = c.trim(); state = s.trim();
+      } else {
+        city = marketName;
+      }
     }
   } catch (e) { /* best-effort — city/state are optional on their side */ }
 
