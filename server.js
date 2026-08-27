@@ -157,7 +157,7 @@ function notify(event, payload) {
    CRMCOLUMBUS_WEBHOOK_SECRET (must match the value set in that app's env). Only
    alliance_status "member"/"verified_member" publish there; anything else is a no-op, so we
    don't bother calling for shops that aren't at member tier here either. */
-const ALLIANCE_SYNC_URL = process.env.ALLIANCE_SYNC_URL || 'https://ustowalliance.com/api/webhooks/crmcolumbus/';
+const ALLIANCE_SYNC_URL = process.env.ALLIANCE_SYNC_URL || 'https://www.ustowalliance.com/api/webhooks/crmcolumbus/';
 const CRMCOLUMBUS_WEBHOOK_SECRET = process.env.CRMCOLUMBUS_WEBHOOK_SECRET || '';
 // CRMColumbus category/status values -> the values ustowalliance.com's webhook expects.
 // 'other' and '' (no alliance profile) have no counterpart there, so they're just skipped.
