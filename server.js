@@ -82,7 +82,8 @@ async function init() {
     ADD COLUMN IF NOT EXISTS cc_processing TEXT, ADD COLUMN IF NOT EXISTS cc_company TEXT, ADD COLUMN IF NOT EXISTS cc_rate TEXT,
     ADD COLUMN IF NOT EXISTS industry TEXT,
     ADD COLUMN IF NOT EXISTS on_call_list BOOLEAN DEFAULT false, ADD COLUMN IF NOT EXISTS call_list_added_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS call_actions TEXT DEFAULT '', ADD COLUMN IF NOT EXISTS call_list_note TEXT DEFAULT ''`);
+    ADD COLUMN IF NOT EXISTS call_actions TEXT DEFAULT '', ADD COLUMN IF NOT EXISTS call_list_note TEXT DEFAULT '',
+    ADD COLUMN IF NOT EXISTS alliance_provider_id TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_shops_call_list ON shops (on_call_list) WHERE on_call_list = true`);
   await pool.query(`CREATE TABLE IF NOT EXISTS audits(
     id SERIAL PRIMARY KEY,
@@ -150,6 +151,58 @@ function notify(event, payload) {
   }).catch(e => console.error('notify failed:', e.message));
 }
 
+/* ---------- Alliance sync (push signed-member shops to ustowalliance.com's registry/map) ----------
+   Receiver contract (ustowalliance.com Django app, /api/webhooks/crmcolumbus/):
+   HMAC-SHA256 hex of the raw JSON body, header X-CRMColumbus-Signature, shared secret
+   CRMCOLUMBUS_WEBHOOK_SECRET (must match the value set in that app's env). Only
+   alliance_status "member"/"verified_member" publish there; anything else is a no-op, so we
+   don't bother calling for shops that aren't at member tier here either. */
+const ALLIANCE_SYNC_URL = process.env.ALLIANCE_SYNC_URL || 'https://ustowalliance.com/api/webhooks/crmcolumbus/';
+const CRMCOLUMBUS_WEBHOOK_SECRET = process.env.CRMCOLUMBUS_WEBHOOK_SECRET || '';
+// CRMColumbus category/status values -> the values ustowalliance.com's webhook expects.
+// 'other' and '' (no alliance profile) have no counterpart there, so they're just skipped.
+const ALLIANCE_CATEGORY = { repair: 'repair', towing: 'towing', body: 'body_shop' };
+const ALLIANCE_STATUS = { basic: 'member', elite: 'verified_member' };
+
+async function syncToAlliance(shop) {
+  if (!CRMCOLUMBUS_WEBHOOK_SECRET) return;
+  const category = ALLIANCE_CATEGORY[shop.category];
+  const allianceStatus = ALLIANCE_STATUS[shop.alliance_status];
+  if (!category || !allianceStatus) return;
+
+  let city = '', state = '';
+  try {
+    const { rows } = await pool.query('SELECT name FROM markets WHERE slug=$1', [shop.market_slug]);
+    if (rows[0] && rows[0].name.includes(',')) {
+      const [c, s] = rows[0].name.split(',');
+      city = c.trim(); state = s.trim();
+    }
+  } catch (e) { /* best-effort — city/state are optional on their side */ }
+
+  const payload = {
+    external_id: `crmcolumbus:${shop.id}`,
+    category, alliance_status: allianceStatus,
+    name: shop.name, phone: shop.phone, address: shop.address,
+    city, state, zip: shop.zip, email: shop.email, website: shop.web,
+    lat: shop.lat, lng: shop.lng, owner_name: shop.owner_name,
+    updated_at: new Date().toISOString(),
+  };
+  const body = JSON.stringify(payload);
+  const signature = crypto.createHmac('sha256', CRMCOLUMBUS_WEBHOOK_SECRET).update(body).digest('hex');
+  try {
+    const r = await fetch(ALLIANCE_SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CRMColumbus-Signature': signature },
+      body,
+    });
+    const out = await r.json().catch(() => null);
+    if (!r.ok) { console.error('alliance sync rejected:', r.status, out); return; }
+    if (out && out.company_id != null && String(out.company_id) !== shop.alliance_provider_id) {
+      await pool.query('UPDATE shops SET alliance_provider_id=$2 WHERE id=$1', [shop.id, String(out.company_id)]);
+    }
+  } catch (e) { console.error('alliance sync failed:', e.message); }
+}
+
 const SHOP_COLS = ['name', 'address', 'zip', 'phone', 'email', 'web', 'contact', 'category', 'lat', 'lng', 'notes',
   'owner_name', 'owner_phone', 'owner_email', 'manager_name', 'manager_phone', 'manager_email', 'alliance_status',
   'voice_ai', 'voice_ai_provider', 'voice_ai_monthly', 'voice_ai_permin', 'voice_ai_setup', 'cc_processing', 'cc_company', 'cc_rate', 'industry'];
@@ -212,6 +265,7 @@ app.post('/api/shops', requireAuth, async (req, res, next) => {
     if (!b.name) return res.status(400).json({ error: 'name required' });
     const shop = await insertShop(b.market || 'columbus', b);
     notify('shop.created', { shop });
+    syncToAlliance(shop);
     res.json({ ...shop, visits: [] });
   } catch (e) { next(e); }
 });
@@ -223,6 +277,7 @@ app.put('/api/shops/:id', requireAuth, async (req, res, next) => {
       [+req.params.id, ...shopVals(req.body)]);
     if (!rows.length) return res.status(404).json({ error: 'not found' });
     notify('shop.updated', { shop: rows[0] });
+    syncToAlliance(rows[0]);
     res.json(rows[0]);
   } catch (e) { next(e); }
 });
