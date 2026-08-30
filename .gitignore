@@ -2,3 +2,4 @@ node_modules/
 .env
 *.log
 _audit_test.js
+.claude/settings.local.json

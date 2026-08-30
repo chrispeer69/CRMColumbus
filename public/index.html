@@ -168,7 +168,9 @@
 
 <header>
   <h1>Blue Collar AI <span>CRM</span></h1>
-  <select class="mkt" id="mktSel" title="Market"></select>
+  <select class="mkt" id="stateSel" title="State"></select>
+  <select class="mkt" id="citySel" title="City"></select>
+  <button class="btn small" id="btnClearCity" title="Clear city selection">✕</button>
   <button class="btn small" id="btnAddCity" title="Add a city">＋ City</button>
   <div class="spacer"></div>
   <div class="toggle">
@@ -291,6 +293,7 @@
       <div class="pp-row" style="margin-bottom:14px">
         <a class="btn primary" id="drNav" target="_blank" rel="noopener">Navigate ▸</a>
         <a class="btn" id="drCall">Call</a>
+        <a class="btn" id="drSite" target="_blank" rel="noopener">🌐 Website</a>
       </div>
 
       <div class="dr-sec" style="border:0;padding-top:0">Send a document</div>
@@ -581,11 +584,14 @@ function gmaps(b){
 function popupHtml(b){
   var f=flags(b);
   var st=f.due?"Follow-up due" : f.visited?("Visited"+(f.sale?" · Sale ✓":f.met?" · Met owner":"")) : "Not visited";
+  var siteUrl=(b.web||"").trim();
+  if(siteUrl)siteUrl=/^https?:\/\//i.test(siteUrl)?siteUrl:"https://"+siteUrl;
   return '<div class="pp-name">'+esc(b.name)+'</div>'
     +'<div class="pp-meta">'+esc(CAT_LABEL[b.category]||b.category)+' · '+st+'<br>'+esc(b.address)+'</div>'
     +(b.phone?'<a class="phone" href="tel:'+esc(b.phone.replace(/[^\d+]/g,""))+'">'+esc(b.phone)+'</a>':'')
     +'<div class="pp-row">'
     +'<a class="btn small" href="'+gmaps(b)+'" target="_blank" rel="noopener">Navigate</a>'
+    +(siteUrl?'<a class="btn small" href="'+esc(siteUrl)+'" target="_blank" rel="noopener">🌐 Website</a>':'')
     +'<button class="btn small primary" onclick="window.__open('+b.id+')">Details / Log visit</button>'
     +'</div>';
 }
@@ -625,25 +631,44 @@ function mktState(m){
   var st=parts.length>1?parts[parts.length-1].trim().toUpperCase():"";
   return STATE_NAMES[st]||"Other";
 }
+var mktGroups={};
 async function loadMarkets(){
   state.markets=await api("/api/markets");
   if(!mktById(state.market)) state.market=state.markets.length?state.markets[0].slug:"columbus";
-  var groups={};
-  state.markets.forEach(function(m){var g=mktState(m);(groups[g]=groups[g]||[]).push(m);});
-  var sel=document.getElementById("mktSel");
-  sel.innerHTML=Object.keys(groups).sort().map(function(g){
-    return '<optgroup label="'+esc(g)+'">'+groups[g].map(function(m){
-      var city=m.name.split(",")[0];
-      return '<option value="'+esc(m.slug)+'"'+(m.slug===state.market?" selected":"")+'>'+esc(city)+' ('+m.shop_count+')</option>';
-    }).join("")+'</optgroup>';
+  mktGroups={};
+  state.markets.forEach(function(m){var g=mktState(m);(mktGroups[g]=mktGroups[g]||[]).push(m);});
+  var curState=mktState(mktById(state.market)||{name:""});
+  var stateSel=document.getElementById("stateSel");
+  stateSel.innerHTML=Object.keys(mktGroups).sort().map(function(g){
+    return '<option value="'+esc(g)+'"'+(g===curState?" selected":"")+'>'+esc(g)+'</option>';
+  }).join("");
+  populateCitySelect(curState,state.market);
+}
+function populateCitySelect(g,selectSlug){
+  var citySel=document.getElementById("citySel");
+  var list=(mktGroups[g]||[]).slice().sort(function(a,b){return a.name.localeCompare(b.name);});
+  citySel.innerHTML='<option value="">— choose a city —</option>'+list.map(function(m){
+    var city=m.name.split(",")[0];
+    return '<option value="'+esc(m.slug)+'"'+(m.slug===selectSlug?" selected":"")+'>'+esc(city)+' ('+m.shop_count+')</option>';
   }).join("");
 }
-document.getElementById("mktSel").addEventListener("change",function(){
+document.getElementById("stateSel").addEventListener("change",function(){
+  populateCitySelect(this.value,null);
+  state.businesses=[];renderMarkers();renderList();
+  toast("Pick a city in "+this.value);
+});
+document.getElementById("citySel").addEventListener("change",function(){
+  if(!this.value)return;
   state.market=this.value;
   localStorage.setItem("fcrm-market",state.market);
   var m=mktById(state.market);
   if(m)map.setView([m.center_lat,m.center_lng],m.zoom);
   guard(loadShops(),"Load failed");
+});
+document.getElementById("btnClearCity").addEventListener("click",function(){
+  document.getElementById("citySel").value="";
+  state.businesses=[];renderMarkers();renderList();
+  toast("Cleared — pick a city to load its map");
 });
 document.getElementById("btnAddCity").onclick=async function(){
   var name=prompt('New city — e.g. "Cleveland, OH"'); if(!name)return;
@@ -795,6 +820,9 @@ function openDrawer(id){
   document.getElementById("drNav").href=gmaps(b);
   var call=document.getElementById("drCall");
   if(b.phone){call.style.display="flex";call.href="tel:"+b.phone.replace(/[^\d+]/g,"");}else call.style.display="none";
+  var site=document.getElementById("drSite");
+  var siteUrl=(b.web||"").trim();
+  if(siteUrl){site.style.display="flex";site.href=/^https?:\/\//i.test(siteUrl)?siteUrl:"https://"+siteUrl;}else site.style.display="none";
   document.getElementById("drBizName").value=b.name||"";
   document.getElementById("drCat").value=b.category||"other";
   document.getElementById("drZip").value=b.zip||"";
