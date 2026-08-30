@@ -187,6 +187,8 @@
   <button class="btn small" id="btnLogout" title="Sign out">⎋</button>
 </header>
 
+<div class="legend" id="cityChips" style="flex-wrap:wrap"></div>
+
 <div class="legend">
   <span><i class="dot" style="background:var(--repair)"></i>Repair</span>
   <span><i class="dot" style="background:var(--towing)"></i>Towing</span>
@@ -528,7 +530,7 @@ function sendSms(num,body){
     function(){prompt("Copy this message:",body);});
 }
 
-var state={markets:[],market:localStorage.getItem("fcrm-market")||"columbus",businesses:[],docs:[]};
+var state={markets:[],market:localStorage.getItem("fcrm-market")||"columbus",viewMarkets:[],businesses:[],docs:[]};
 var markers={}, repMarkers={}, currentId=null;
 var userMarker=null, watchId=null, lastPos=null, lastPosPush=0;
 var placing=false, addLatLng=null, addPreview=null;
@@ -642,33 +644,73 @@ async function loadMarkets(){
   stateSel.innerHTML=Object.keys(mktGroups).sort().map(function(g){
     return '<option value="'+esc(g)+'"'+(g===curState?" selected":"")+'>'+esc(g)+'</option>';
   }).join("");
-  populateCitySelect(curState,state.market);
+  populateCitySelect(curState);
+  // Restore which cities were on the map — falls back to just the single active market.
+  var saved=[];
+  try{saved=JSON.parse(localStorage.getItem("fcrm-view-markets")||"[]");}catch(e){}
+  saved=saved.filter(function(slug){return mktById(slug);});
+  state.viewMarkets=saved.length?saved:[state.market];
+  renderCityChips();
+  focusMapOnViewMarkets();
 }
-function populateCitySelect(g,selectSlug){
+function populateCitySelect(g){
   var citySel=document.getElementById("citySel");
   var list=(mktGroups[g]||[]).slice().sort(function(a,b){return a.name.localeCompare(b.name);});
-  citySel.innerHTML='<option value="">— choose a city —</option>'+list.map(function(m){
+  citySel.innerHTML='<option value="">＋ add a city —</option>'+list.map(function(m){
     var city=m.name.split(",")[0];
-    return '<option value="'+esc(m.slug)+'"'+(m.slug===selectSlug?" selected":"")+'>'+esc(city)+' ('+m.shop_count+')</option>';
+    return '<option value="'+esc(m.slug)+'">'+esc(city)+' ('+m.shop_count+')</option>';
   }).join("");
 }
+function saveViewMarkets(){
+  localStorage.setItem("fcrm-view-markets",JSON.stringify(state.viewMarkets));
+}
+function renderCityChips(){
+  var box=document.getElementById("cityChips");
+  if(!state.viewMarkets.length){box.innerHTML='<span class="hint" style="margin:0">No city selected — pick one above</span>';return;}
+  box.innerHTML=state.viewMarkets.map(function(slug){
+    var m=mktById(slug); var city=m?m.name.split(",")[0]:slug;
+    return '<span class="tag" style="cursor:pointer;background:'+(slug===state.market?"var(--accent,#2563eb)":"#e2e8f0")+';color:'+(slug===state.market?"#fff":"#334155")+'" '
+      +'onclick="setPrimaryCity(\''+slug+'\')" title="Tap to make this the active city for adding shops / import / export">'
+      +esc(city)+' <b onclick="event.stopPropagation();removeCity(\''+slug+'\')" style="margin-left:4px">✕</b></span>';
+  }).join("");
+}
+function focusMapOnViewMarkets(){
+  var pts=state.viewMarkets.map(mktById).filter(Boolean);
+  if(!pts.length)return;
+  if(pts.length===1){map.setView([pts[0].center_lat,pts[0].center_lng],pts[0].zoom);return;}
+  map.fitBounds(L.latLngBounds(pts.map(function(m){return [m.center_lat,m.center_lng];})).pad(0.2));
+}
+window.setPrimaryCity=function(slug){
+  state.market=slug; localStorage.setItem("fcrm-market",slug);
+  renderCityChips();
+};
+window.removeCity=function(slug){
+  state.viewMarkets=state.viewMarkets.filter(function(s){return s!==slug;});
+  saveViewMarkets();
+  if(state.market===slug&&state.viewMarkets.length)state.market=state.viewMarkets[0];
+  renderCityChips();
+  guard(loadShops(),"Load failed");
+};
 document.getElementById("stateSel").addEventListener("change",function(){
-  populateCitySelect(this.value,null);
-  state.businesses=[];renderMarkers();renderList();
-  toast("Pick a city in "+this.value);
+  populateCitySelect(this.value);
 });
 document.getElementById("citySel").addEventListener("change",function(){
   if(!this.value)return;
-  state.market=this.value;
-  localStorage.setItem("fcrm-market",state.market);
-  var m=mktById(state.market);
-  if(m)map.setView([m.center_lat,m.center_lng],m.zoom);
+  var slug=this.value;
+  this.value="";
+  if(state.viewMarkets.indexOf(slug)===-1)state.viewMarkets.push(slug);
+  state.market=slug; localStorage.setItem("fcrm-market",slug);
+  saveViewMarkets();
+  renderCityChips();
+  focusMapOnViewMarkets();
   guard(loadShops(),"Load failed");
 });
 document.getElementById("btnClearCity").addEventListener("click",function(){
-  document.getElementById("citySel").value="";
+  state.viewMarkets=[];
+  saveViewMarkets();
+  renderCityChips();
   state.businesses=[];renderMarkers();renderList();
-  toast("Cleared — pick a city to load its map");
+  toast("Cleared — pick a city (or several) to load their map");
 });
 document.getElementById("btnAddCity").onclick=async function(){
   var name=prompt('New city — e.g. "Cleveland, OH"'); if(!name)return;
@@ -680,7 +722,10 @@ document.getElementById("btnAddCity").onclick=async function(){
     var slug=name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
     await guard(api("/api/markets",{method:"POST",body:{slug:slug,name:name,center_lat:+j[0].lat,center_lng:+j[0].lon,zoom:11}}),"Add city failed");
     state.market=slug; localStorage.setItem("fcrm-market",slug);
-    await loadMarkets(); await loadShops();
+    await loadMarkets();
+    if(state.viewMarkets.indexOf(slug)===-1)state.viewMarkets.push(slug);
+    saveViewMarkets();renderCityChips();
+    await loadShops();
     map.setView([+j[0].lat,+j[0].lon],11);
     toast(name+" added — import or add shops to get started");
   }catch(e){}
@@ -688,7 +733,11 @@ document.getElementById("btnAddCity").onclick=async function(){
 
 /* ---------- shops ---------- */
 async function loadShops(){
-  state.businesses=await api("/api/shops?market="+encodeURIComponent(state.market));
+  if(!state.viewMarkets.length){state.businesses=[];renderMarkers();renderList();fillDocSelect();return;}
+  var lists=await Promise.all(state.viewMarkets.map(function(slug){
+    return api("/api/shops?market="+encodeURIComponent(slug));
+  }));
+  state.businesses=[].concat.apply([],lists);
   renderMarkers();renderList();fillDocSelect();
 }
 
