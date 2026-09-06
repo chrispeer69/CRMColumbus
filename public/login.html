@@ -28,8 +28,14 @@
   <input id="pw" type="password" autocomplete="current-password" autofocus>
   <button type="submit">Sign in</button>
   <div class="err" id="err"></div>
+  <div id="sso" style="display:none;margin-top:14px;text-align:center">
+    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.6;margin-bottom:8px">or</div>
+    <a href="/sso/login" style="display:block;padding:10px;border-radius:6px;background:#dfeaf8;color:#0f2f5f;border:1px solid #b9cfec;text-decoration:none;font-weight:600">Sign in with Roadside SSO</a>
+  </div>
 </form>
 <script>
+fetch('/api/sso').then(function(r){return r.json()}).then(function(j){ if(j.enabled) document.getElementById('sso').style.display='block'; }).catch(function(){});
+(function(){ var m=new URLSearchParams(location.search).get('sso_error'); if(m){ document.getElementById('err').textContent=m; } })();
 document.getElementById('f').addEventListener('submit', async function(e){
   e.preventDefault();
   var err=document.getElementById('err'); err.textContent='';

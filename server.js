@@ -44,6 +44,69 @@ app.post('/api/login', (req, res) => {
 app.post('/api/logout', (req, res) => { res.clearCookie('fcrm'); res.json({ ok: true }); });
 app.get('/api/me', (req, res) => res.json({ authed: authed(req) }));
 
+/* ---------- Roadside SSO (OpenID Connect, code + PKCE) ----------
+   /sso/login sends the browser to Roadside; /sso/callback verifies the round-trip and grants the
+   same signed cookie the team password does. Configure ROADSIDE_SSO_ISSUER / CLIENT_ID / CLIENT_SECRET
+   (and optionally ROADSIDE_SSO_REDIRECT_URI) on the service. */
+const SSO = {
+  issuer: (process.env.ROADSIDE_SSO_ISSUER || '').replace(/\/+$/, ''),
+  clientId: process.env.ROADSIDE_SSO_CLIENT_ID || 'crmcolumbus',
+  clientSecret: process.env.ROADSIDE_SSO_CLIENT_SECRET || '',
+  redirectUri: process.env.ROADSIDE_SSO_REDIRECT_URI || '',
+};
+const ssoEnabled = () => !!(SSO.issuer && SSO.clientSecret);
+const b64url = (b) => Buffer.from(b).toString('base64url');
+function ssoRedirectUri(req) { return SSO.redirectUri || `${req.protocol}://${req.get('host')}/sso/callback`; }
+function ssoSign(payload) { return crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url'); }
+
+app.get('/api/sso', (req, res) => res.json({ enabled: ssoEnabled() }));
+
+app.get('/sso/login', (req, res) => {
+  if (!ssoEnabled()) return res.redirect('/login.html?sso_error=' + encodeURIComponent('Single sign-on is not configured.'));
+  const verifier = b64url(crypto.randomBytes(48));
+  const state = b64url(crypto.randomBytes(24));
+  const nonce = b64url(crypto.randomBytes(16));
+  const saved = b64url(JSON.stringify({ s: state, n: nonce, v: verifier, exp: Date.now() + 600000 }));
+  res.cookie('fcrm_sso', `${saved}.${ssoSign(saved)}`, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 600000 });
+  const q = new URLSearchParams({
+    client_id: SSO.clientId, redirect_uri: ssoRedirectUri(req), response_type: 'code', scope: 'openid profile email roadside',
+    state, nonce, code_challenge: b64url(crypto.createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256',
+  });
+  res.redirect(`${SSO.issuer}/oauth/authorize?${q}`);
+});
+
+app.get('/sso/callback', async (req, res) => {
+  const fail = (m) => { res.clearCookie('fcrm_sso'); res.redirect('/login.html?sso_error=' + encodeURIComponent(m)); };
+  try {
+    const raw = (req.cookies && req.cookies.fcrm_sso) || '';
+    const [payload, sig] = raw.split('.');
+    if (!payload || sig !== ssoSign(payload)) return fail('Your sign-in session expired. Please try again.');
+    const saved = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    if (saved.exp < Date.now() || req.query.state !== saved.s) return fail('Your sign-in session expired. Please try again.');
+    if (req.query.error) return fail(req.query.error_description || 'Sign-in was refused by Roadside SSO.');
+    const basic = Buffer.from(`${encodeURIComponent(SSO.clientId)}:${encodeURIComponent(SSO.clientSecret)}`).toString('base64');
+    const tr = await fetch(`${SSO.issuer}/oauth/token`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', authorization: `Basic ${basic}` },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code: String(req.query.code || ''), redirect_uri: ssoRedirectUri(req), code_verifier: saved.v }),
+    });
+    if (!tr.ok) return fail('Roadside SSO rejected the sign-in code.');
+    const tokens = await tr.json();
+    const idClaims = JSON.parse(Buffer.from(String(tokens.id_token || '').split('.')[1] || '', 'base64url').toString() || '{}');
+    if (idClaims.nonce !== saved.n) return fail('Sign-in could not be verified.');
+    const ur = await fetch(`${SSO.issuer}/oauth/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
+    if (!ur.ok) return fail('Could not read the Roadside profile.');
+    const info = await ur.json();
+    if (!info.email) return fail('Roadside account has no email.');
+    console.log(`[sso] ${info.email} signed in via Roadside (${(info.roles || []).join(',')})`);
+    res.clearCookie('fcrm_sso');
+    res.cookie('fcrm', tok(), { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 180 * 24 * 3600 * 1000 });
+    res.redirect('/');
+  } catch (e) {
+    console.error('[sso]', e);
+    fail('Could not complete sign-in with Roadside SSO.');
+  }
+});
+
 /* ---------- schema ---------- */
 async function init() {
   await pool.query(`CREATE TABLE IF NOT EXISTS markets(
