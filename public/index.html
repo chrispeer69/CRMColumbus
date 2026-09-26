@@ -986,7 +986,7 @@ document.getElementById("drRunSeo").onclick=async function(){
   if(!web){ document.getElementById("drSeo").textContent="Add or find a website first."; return; }
   var el=document.getElementById("drSeo"); el.textContent="Auditing "+web+"… this can take ~30s.";
   try{
-    var r=await SEO.audit(web,{psiKey:window.__PSI||""});
+    var r=await SEO.audit(web,{psiKey:window.__PSI||"", industry:seoIndustryFor(b)});
     var sc=SEO.score(r);
     var saved=await guard(api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:r,score:sc.score,grade:sc.grade}}),"Save failed");
     Object.assign(b,saved);
@@ -1190,7 +1190,7 @@ document.getElementById("seoRun").onclick=async function(){
   if(!window.SEO){toast("SEO engine still loading");return;}
   var url=document.getElementById("seoUrl").value.trim(); if(!url){toast("Enter a website");return;}
   document.getElementById("seoBody").innerHTML='<div class="hint" style="color:#64748b">Auditing '+url+'… this can take ~30s.</div>';
-  try{ var r=await SEO.audit(url,{psiKey:window.__PSI||""}); seoState.report=r; seoState.name=r.domain; document.getElementById("seoBody").innerHTML=SEO.reportHTML(r); }
+  try{ var r=await SEO.audit(url,{psiKey:window.__PSI||"", industry:seoIndustryFor(bizForUrl(url))}); seoState.report=r; seoState.name=r.domain; document.getElementById("seoBody").innerHTML=SEO.reportHTML(r); }
   catch(e){ document.getElementById("seoBody").innerHTML='<div style="color:#dc2626">Audit failed — the site may block automated access, or the URL is invalid.</div>'; }
 };
 // server-side render adapter (used only when RENDER_API_KEY is set in Railway)
@@ -1568,7 +1568,7 @@ async function runBulkAudit(shops){
       if(!url){ noWeb++; done++; upd(""); continue; }
       upd(b.name);
       try{
-        var r=await SEO.audit(url,{psiKey:window.__PSI||""});
+        var r=await SEO.audit(url,{psiKey:window.__PSI||"", industry:seoIndustryFor(b)});
         var sc=SEO.score(r);
         await api("/api/shops/"+b.id+"/audit",{method:"POST",body:{report:r,score:sc.score,grade:sc.grade}});
         Object.assign(b,{last_report:r,latest_grade:sc.grade,latest_score:sc.score,last_audit_at:new Date().toISOString()});
