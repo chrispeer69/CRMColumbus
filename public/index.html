@@ -1001,7 +1001,7 @@ document.getElementById("drCrawl").onclick=async function(){
   if(!web){ document.getElementById("drSeo").textContent="Add or find a website first."; return; }
   var el=document.getElementById("drSeo"); el.innerHTML='<span style="color:#64748b">Discovering pages on '+esc(web)+'…</span>';
   try{
-    var res=await SEO.crawlSite(web,{ max:150, concurrency:6, psiKey:window.__PSI||"", render:(window.__RENDER?renderPage:null),
+    var res=await SEO.crawlSite(web,{ max:150, concurrency:6, psiKey:window.__PSI||"", industry:seoIndustryFor(b), render:(window.__RENDER?renderPage:null),
       places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
       onProgress:function(d,t,u){ el.innerHTML='<span style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,60))+'</span></span>'; } });
     if(!res || res.error){ el.innerHTML='<span style="color:#EF5350">Crawl failed — '+esc((res&&res.error)||'the site blocked automated access or has no crawlable pages.')+'</span>'; return; }
@@ -1194,6 +1194,12 @@ document.getElementById("seoRun").onclick=async function(){
   catch(e){ document.getElementById("seoBody").innerHTML='<div style="color:#dc2626">Audit failed — the site may block automated access, or the URL is invalid.</div>'; }
 };
 // server-side render adapter (used only when RENDER_API_KEY is set in Railway)
+// The SEO engine's industry checks (service taxonomy, licence numbers) come from the client record: towing clients
+// (category "towing" or an industry mentioning towing) are audited as "towing"; everyone else as "general".
+function seoIndustryFor(b){ if(!b) return "general"; var t=((b.category||"")+" "+(b.industry||"")).toLowerCase(); return /\btow/.test(t)?"towing":"general"; }
+// The client whose website is this URL (for crawls started from the SEO tool rather than a client drawer).
+function bizForUrl(u){ var h=function(x){ try{ return new URL(/^https?:\/\//i.test(x)?x:"https://"+x).hostname.replace(/^www\./,"").toLowerCase(); }catch(e){ return ""; } }; var k=h(u); if(!k) return null;
+  return (state.businesses||[]).find(function(b){ return b.web&&h(b.web)===k; })||null; }
 function renderPage(u){ return fetch('/api/render?url='+encodeURIComponent(u)).then(function(r){ return r.ok?r.text():null; }).catch(function(){ return null; }); }
 document.getElementById("seoCrawl").onclick=async function(){
   if(!window.SEO){toast("SEO engine still loading");return;}
@@ -1201,7 +1207,7 @@ document.getElementById("seoCrawl").onclick=async function(){
   var body=document.getElementById("seoBody");
   body.innerHTML='<div class="hint" style="color:#64748b">Discovering pages on '+esc(url)+'…</div>';
   try{
-    var res=await SEO.crawlSite(url,{ max:150, concurrency:6, psiKey:window.__PSI||"", render:(window.__RENDER?renderPage:null),
+    var res=await SEO.crawlSite(url,{ max:150, concurrency:6, psiKey:window.__PSI||"", industry:seoIndustryFor(bizForUrl(url)), render:(window.__RENDER?renderPage:null),
       places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
       onProgress:function(d,t,u){ body.innerHTML='<div class="hint" style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,70))+'</span></div>'; } });
     seoState={mode:'site',siteResult:res,report:null,name:(res&&res.root)||url};
