@@ -563,20 +563,49 @@ function rateLimit({ windowMs, max }) {
     next();
   };
 }
+const PAGE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9',
+  'Upgrade-Insecure-Requests': '1', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none',
+};
 app.get('/api/proxy', requireAuth, rateLimit({ windowMs: 60000, max: 120 }), async (req, res) => {
   const target = req.query.url;
   if (!target) return res.status(400).send('missing url');
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000);
   try {
-    const r = await guardedFetch(target, { signal: ctrl.signal, headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9',
-      'Upgrade-Insecure-Requests': '1', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none',
-    } });
+    const r = await guardedFetch(target, { signal: ctrl.signal, headers: PAGE_HEADERS });
     const body = await r.text();
     res.set('Access-Control-Allow-Origin', '*');
+    res.set('X-Final-Url', r.url || target);  // lets the SEO engine tell a clean 200 from a followed redirect
     res.status(r.status).type('text/plain; charset=utf-8').send(body);
   } catch (e) { const code = e && e.code ? e.code : 502; res.status(code).send(code === 403 ? 'blocked host' : code === 400 ? 'bad url' : 'fetch failed'); } finally { clearTimeout(t); }
+});
+// URL status checks for the SEO engine (canonical targets, internal links). Same contract as the public tool's
+// /api/linkcheck: redirects are NOT followed, and a robots noindex (meta or X-Robots-Tag) is reported.
+async function linkCheck(target) {
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await guardedFetch(target, { signal: ctrl.signal, headers: PAGE_HEADERS, redirect: 'manual' });
+    const status = r.status;
+    let location = r.headers.get('location') || null;
+    if (location) { try { location = new URL(location, target).href; } catch (e) { /* keep raw */ } }
+    let noindex = /noindex/i.test(r.headers.get('x-robots-tag') || '');
+    let challenged = false;
+    if (status === 200 || status === 403 || status === 503) {
+      const body = (await r.text()).slice(0, 400000);
+      if (status === 200 && /<meta[^>]+name=["']?(robots|googlebot)["']?[^>]*content=["'][^"']*noindex/i.test(body)) noindex = true;
+      challenged = status !== 200 && /just a moment|cf-chl|challenge-platform|cf-mitigated|enable javascript and cookies/i.test(body);
+    } else { try { await r.body?.cancel(); } catch (e) { /* ignore */ } }
+    return { url: target, status, location, noindex, challenged };
+  } catch (e) {
+    return { url: target, status: 0, location: null, noindex: false, challenged: false, error: 'fetch failed' };
+  } finally { clearTimeout(t); }
+}
+app.post('/api/linkcheck', requireAuth, rateLimit({ windowMs: 60000, max: 60 }), async (req, res) => {
+  const list = [...new Set((Array.isArray(req.body && req.body.urls) ? req.body.urls : []).map(String).filter(u => /^https?:\/\//i.test(u)))].slice(0, 60);
+  const results = []; let i = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { while (i < list.length) { const u = list[i++]; results.push(await linkCheck(u)); } }));
+  res.json({ results });
 });
 // Headless rendering (JS sites) via a rendering API — key stays server-side. Off until RENDER_API_KEY is set.
 app.get('/api/render', requireAuth, rateLimit({ windowMs: 60000, max: 30 }), async (req, res) => {
