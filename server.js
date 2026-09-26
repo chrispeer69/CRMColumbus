@@ -741,6 +741,10 @@ app.get('/buy/:token', async (req, res, next) => {
 app.get('/r/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'report.html')));
 
 /* ---------- static ---------- */
+// The SEO audit engine has ONE copy: seo-engine.js in the public SEO tool (chrispeer69/seoreview), served by its
+// deploy. The CRM loads that same file, so an engine change is made once and both tools pick it up.
+const SEO_ENGINE_URL = process.env.SEO_ENGINE_URL || 'https://seoreview-production.up.railway.app/seo-engine.js';
+app.get('/seo-engine.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.redirect(302, SEO_ENGINE_URL); });
 app.get('/', (req, res) => {
   if (!authed(req)) return res.redirect('/login.html');
   res.set('Cache-Control', 'no-cache');
