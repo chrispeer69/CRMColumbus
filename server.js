@@ -786,19 +786,39 @@ app.get('/buy/:token', async (req, res, next) => {
     return url ? res.redirect(url) : res.redirect('/r/' + req.params.token + '?payerr=1');
   } catch (e) { next(e); }
 });
-app.get('/r/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'report.html')));
+app.get(['/r/:token', '/report.html'], (req, res) => sendWithEngine(res, 'report.html'));
 
 /* ---------- static ---------- */
 // The SEO audit engine has ONE copy: seo-engine.js in the public SEO tool (chrispeer69/seoreview), served by its
 // deploy. The CRM loads that same file, so an engine change is made once and both tools pick it up.
 const SEO_ENGINE_URL = process.env.SEO_ENGINE_URL || 'https://seoreview-production.up.railway.app/seo-engine.js';
-app.get('/seo-engine.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.redirect(302, SEO_ENGINE_URL); });
+// Cache-busting: pages load the engine as /seo-engine.js?v=<engine version>, so a deploy of the engine is a new URL
+// and no browser keeps running a cached copy. The version comes from the SEO tool (cached here for a minute).
+let engineVer = { v: '', at: 0 };
+async function currentEngineVersion() {
+  if (Date.now() - engineVer.at < 60000) return engineVer.v;
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch(SEO_ENGINE_URL.replace(/seo-engine\.js$/, 'seo-engine.version'), { signal: ctrl.signal }).finally(() => clearTimeout(t));
+    if (r.ok) engineVer = { v: String((await r.json()).version || ''), at: Date.now() };
+  } catch (e) { engineVer.at = Date.now() - 50000; } // retry in ~10s; meanwhile fall back to a per-boot stamp
+  return engineVer.v;
+}
+const BOOT_STAMP = Date.now().toString(36);
+async function sendWithEngine(res, file) {
+  const v = (await currentEngineVersion()) || BOOT_STAMP;
+  const html = fs.readFileSync(path.join(__dirname, 'public', file), 'utf8').replace('<script src="/seo-engine.js"></script>', '<script src="/seo-engine.js?v=' + encodeURIComponent(v) + '"></script>');
+  res.set('Cache-Control', 'no-cache').type('html').send(html);
+}
+app.get('/seo-engine.js', (req, res) => {
+  const v = req.query.v ? '?v=' + encodeURIComponent(String(req.query.v)) : '';
+  res.set('Cache-Control', 'no-cache'); res.redirect(302, SEO_ENGINE_URL + v);
+});
 // ...and its industry configs (fetched by the engine at /config/industries/<name>.json).
-app.get('/config/industries/:name', (req, res) => res.redirect(302, SEO_ENGINE_URL.replace(/seo-engine.js$/, '') + 'config/industries/' + encodeURIComponent(req.params.name)));
-app.get('/', (req, res) => {
+app.get('/config/industries/:name', (req, res) => { res.set('Cache-Control', 'no-cache'); res.redirect(302, SEO_ENGINE_URL.replace(/seo-engine\.js$/, '') + 'config/industries/' + encodeURIComponent(req.params.name)); });
+app.get(['/', '/index.html'], (req, res) => {
   if (!authed(req)) return res.redirect('/login.html');
-  res.set('Cache-Control', 'no-cache');
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  sendWithEngine(res, 'index.html');
 });
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
