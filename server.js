@@ -35,7 +35,18 @@ function tok() { return crypto.createHmac('sha256', SESSION_SECRET).update('fiel
 function authed(req) { return req.cookies && req.cookies.fcrm === tok(); }
 function requireAuth(req, res, next) { if (authed(req)) return next(); res.status(401).json({ error: 'unauthorized' }); }
 
-app.post('/api/login', (req, res) => {
+// The ONLY routes that answer without a login. Everything else must use requireAuth (or, for the app page, redirect
+// to /login.html). test/auth.test.js fails if any route outside this list responds to an anonymous request.
+//   login / logout / session check / SSO: needed to sign in
+//   /d/:token, /r/:token, /report.html, /api/shared/:token(/claim), /buy/:token: customer share links, gated by an
+//     unguessable token (documents: 128-bit; reports: 72-bit, and the full report only after a verified payment)
+//   /seo-engine.js, /config/industries/:name: the public SEO engine (redirects to the SEO tool)
+//   /healthz: uptime probe
+const PUBLIC_ROUTES = ['POST /api/login', 'POST /api/logout', 'GET /api/me', 'GET /api/sso', 'GET /sso/login', 'GET /sso/callback',
+  'GET /d/:token', 'GET /api/shared/:token', 'POST /api/shared/:token/claim', 'GET /buy/:token', 'GET /r/:token', 'GET /report.html',
+  'GET /seo-engine.js', 'GET /config/industries/:name', 'GET /login.html', 'GET /healthz'];
+// Shared team password: slow down guessing (10 tries per 15 minutes per IP).
+app.post('/api/login', rateLimit({ windowMs: 15 * 60000, max: 10 }), (req, res) => {
   const pw = (req.body && req.body.password) || '';
   if (pw !== APP_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
   res.cookie('fcrm', tok(), { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 180 * 24 * 3600 * 1000 });
@@ -471,6 +482,9 @@ app.get('/d/:token', async (req, res, next) => {
     if (!rows.length) return res.status(404).send('Document not found');
     const d = rows[0];
     res.setHeader('Content-Type', d.mime);
+    // Shared files are customer-facing: keep them out of search, never sniff types, and sandbox any uploaded HTML
+    // (no scripts, opaque origin) so a document can never act as the CRM.
+    res.set({ 'X-Robots-Tag': 'noindex, nofollow', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': 'sandbox allow-popups allow-modals' });
     res.setHeader('Content-Disposition', 'inline; filename="' + d.filename.replace(/"/g, '') + '"');
     res.send(d.data);
   } catch (e) { next(e); }
@@ -746,9 +760,12 @@ async function stripeCheckout(base, token, name) {
     return (await r.json()).url;
   } catch (e) { return null; }
 }
-async function stripePaid(sid) {
-  const key = process.env.STRIPE_SECRET_KEY; if (!key || !sid) return false;
-  try { const r = await fetch('https://api.stripe.com/v1/checkout/sessions/' + encodeURIComponent(sid), { headers: { 'Authorization': 'Bearer ' + key } }); if (!r.ok) return false; return (await r.json()).payment_status === 'paid'; } catch (e) { return false; }
+// A paid Checkout session unlocks only the report it was bought for (checkout sets client_reference_id = token);
+// without this check one purchase's session_id could unlock every shared report.
+async function stripePaid(sid, token) {
+  const key = process.env.STRIPE_SECRET_KEY; if (!key || !sid || !token) return false;
+  try { const r = await fetch('https://api.stripe.com/v1/checkout/sessions/' + encodeURIComponent(sid), { headers: { 'Authorization': 'Bearer ' + key } }); if (!r.ok) return false;
+    const s = await r.json(); return s.payment_status === 'paid' && s.client_reference_id === token; } catch (e) { return false; }
 }
 app.post('/api/shared', requireAuth, async (req, res, next) => {
   try {
@@ -761,6 +778,7 @@ app.post('/api/shared', requireAuth, async (req, res, next) => {
 });
 app.get('/api/shared/:token', async (req, res, next) => {
   try {
+    res.set('X-Robots-Tag', 'noindex');
     const { rows } = await pool.query('SELECT name,report,summary,paid FROM shared_reports WHERE token=$1', [req.params.token]);
     if (!rows.length) return res.status(404).json({ error: 'not_found' });
     const row = rows[0];
@@ -769,7 +787,7 @@ app.get('/api/shared/:token', async (req, res, next) => {
 });
 app.post('/api/shared/:token/claim', async (req, res, next) => {
   try {
-    const paid = await stripePaid((req.body || {}).session_id);
+    const paid = await stripePaid((req.body || {}).session_id, req.params.token);
     if (!paid) return res.json({ paid: false });
     await pool.query('UPDATE shared_reports SET paid=true, stripe_session=$1 WHERE token=$2', [(req.body || {}).session_id || null, req.params.token]);
     const { rows } = await pool.query('SELECT name,report,summary FROM shared_reports WHERE token=$1', [req.params.token]);
@@ -820,17 +838,22 @@ app.get(['/', '/index.html'], (req, res) => {
   if (!authed(req)) return res.redirect('/login.html');
   sendWithEngine(res, 'index.html');
 });
-app.use(express.static(path.join(__dirname, 'public'), {
-  index: false,
-  setHeaders: (res, p) => { if (p.endsWith('.html')) res.set('Cache-Control', 'no-cache'); },
-}));
+// No blanket static folder: public/ only holds three pages. index.html (the app) is login-only above, report.html
+// is the share page (/r/:token), and login.html is the one page anyone may load. Anything else is a 404 — so no
+// encoded-path trick (/%69ndex.html) can reach a file express.static would have decoded and served.
+app.get('/login.html', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'login.html')); });
 app.get('/healthz', (req, res) => res.json({ ok: true }));
+app.use((req, res) => res.status(404).type('text').send('Not found'));
 
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: 'server error' });
 });
 
-init().then(() => {
-  app.listen(PORT, () => console.log('Field CRM running on port ' + PORT));
-}).catch(e => { console.error('DB init failed:', e); process.exit(1); });
+if (require.main === module) {
+  init().then(() => {
+    app.listen(PORT, () => console.log('Field CRM running on port ' + PORT));
+  }).catch(e => { console.error('DB init failed:', e); process.exit(1); });
+}
+// For tests (test/auth.test.js walks every route without a login).
+module.exports = { app, PUBLIC_ROUTES };
