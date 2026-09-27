@@ -1002,7 +1002,7 @@ document.getElementById("drCrawl").onclick=async function(){
   var el=document.getElementById("drSeo"); el.innerHTML='<span style="color:#64748b">Discovering pages on '+esc(web)+'…</span>';
   try{
     var res=await SEO.crawlSite(web,{ max:150, concurrency:6, psiKey:window.__PSI||"", industry:seoIndustryFor(b), render:(window.__RENDER?renderPage:null),
-      places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
+      places:function(q,o){ return api("/api/places?q="+encodeURIComponent(q||"")+"&phone="+encodeURIComponent((o&&o.phone)||"")+"&address="+encodeURIComponent((o&&o.address)||"")).catch(function(){return null;}); },
       onProgress:function(d,t,u){ el.innerHTML='<span style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,60))+'</span></span>'; } });
     if(!res || res.error){ el.innerHTML='<span style="color:#EF5350">Crawl failed — '+esc((res&&res.error)||'the site blocked automated access or has no crawlable pages.')+'</span>'; return; }
     var s=(res.siteScore==null?null:res.siteScore), g=seoGrade(s);
@@ -1208,7 +1208,7 @@ document.getElementById("seoCrawl").onclick=async function(){
   body.innerHTML='<div class="hint" style="color:#64748b">Discovering pages on '+esc(url)+'…</div>';
   try{
     var res=await SEO.crawlSite(url,{ max:150, concurrency:6, psiKey:window.__PSI||"", industry:seoIndustryFor(bizForUrl(url)), render:(window.__RENDER?renderPage:null),
-      places:function(q){ return api("/api/places?q="+encodeURIComponent(q)).catch(function(){return null;}); },
+      places:function(q,o){ return api("/api/places?q="+encodeURIComponent(q||"")+"&phone="+encodeURIComponent((o&&o.phone)||"")+"&address="+encodeURIComponent((o&&o.address)||"")).catch(function(){return null;}); },
       onProgress:function(d,t,u){ body.innerHTML='<div class="hint" style="color:#64748b">Crawling… audited <b>'+d+'</b> of '+t+' pages<br><span style="font-size:12px">'+esc(String(u||'').slice(0,70))+'</span></div>'; } });
     seoState={mode:'site',siteResult:res,report:null,name:(res&&res.root)||url};
     document.getElementById("seoTitle").textContent="Full-site audit — "+((res&&res.root)||url);

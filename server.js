@@ -700,23 +700,52 @@ app.get('/api/geocode', requireAuth, rateLimit({ windowMs: 60000, max: 60 }), as
   } catch (e) { res.status(502).json({ error: 'geocode_failed' }); }
 });
 // Google Places lookup — find a business's website/phone from name + location (field speed)
+// Google Business Profile lookup — identical to the SEO tool's places.js (name + phone, address fallback, phone
+// match wins). Keep the two copies the same.
+const placesDigits = s => String(s || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+const placesNorm = s => String(s || '').toLowerCase().replace(/&amp;/g, '&').replace(/[^a-z0-9]+/g, ' ').trim();
+
+// Choose among place details: phone match first, then a name match, else the first candidate.
+function pickPlace(cands, want) {
+  const phone = placesDigits(want && want.phone), name = placesNorm(want && want.name);
+  if (!cands.length) return null;
+  if (phone) { const byPhone = cands.find(c => placesDigits(c.formatted_phone_number || c.international_phone_number) === phone); if (byPhone) return { place: byPhone, matchedBy: 'phone' }; }
+  if (name) { const byName = cands.find(c => { const n = placesNorm(c.name); return n && (n === name || n.includes(name) || name.includes(n)); }); if (byName) return { place: byName, matchedBy: 'name' }; }
+  return { place: cands[0], matchedBy: 'first result' };
+}
+
+function makePlacesLookup(getJson, key) {
+  const FIELDS = 'place_id,name,rating,user_ratings_total,url,formatted_address,formatted_phone_number,international_phone_number,reviews,website,opening_hours';
+  const api = (p, q) => getJson('https://maps.googleapis.com/maps/api/place/' + p + '/json?' + q + '&key=' + encodeURIComponent(key));
+  return async function placesLookup(name, opts) {
+    opts = opts || {};
+    const ids = [], add = list => (list || []).forEach(r => { if (r && r.place_id && !ids.includes(r.place_id)) ids.push(r.place_id); });
+    const d = placesDigits(opts.phone);
+    const tried = [];
+    if (d.length === 10) { tried.push('phone'); add((await api('findplacefromtext', 'inputtype=phonenumber&fields=place_id&input=' + encodeURIComponent('+1' + d))).candidates); }
+    if (name) { tried.push('name'); add(((await api('textsearch', 'query=' + encodeURIComponent(name + (opts.address ? ' ' + opts.address : '')))).results || []).slice(0, 5)); }
+    if (!ids.length && opts.address) { tried.push('address'); add(((await api('textsearch', 'query=' + encodeURIComponent(opts.address))).results || []).slice(0, 3)); }
+    if (!ids.length) return { found: false, query: { name: name || null, phone: opts.phone || null, address: opts.address || null }, tried };
+    const details = (await Promise.all(ids.slice(0, 3).map(id => api('details', 'place_id=' + id + '&fields=' + FIELDS).then(j => j.result).catch(() => null)))).filter(Boolean);
+    const pick = pickPlace(details, { phone: opts.phone, name });
+    if (!pick) return { found: false, tried };
+    const p = pick.place, oh = p.opening_hours;
+    return {
+      found: true, matchedBy: pick.matchedBy, candidates: details.length, tried,
+      name: p.name, rating: p.rating, reviews: p.user_ratings_total, address: p.formatted_address, phone: p.formatted_phone_number, mapsUrl: p.url, website: p.website || null,
+      // GBP hours; open247 = Google's "open 24 hours" (one period opening Sunday 00:00 with no close).
+      hours: oh ? { weekdayText: oh.weekday_text || [], open247: !!(oh.periods && oh.periods.length === 1 && oh.periods[0].open && oh.periods[0].open.time === '0000' && !oh.periods[0].close) } : null,
+      recent: (p.reviews || []).slice(0, 3).map(x => ({ author: x.author_name, rating: x.rating, text: x.text, when: x.relative_time_description })),
+    };
+  };
+}
 app.get('/api/places', requireAuth, rateLimit({ windowMs: 60000, max: 60 }), async (req, res) => {
   const key = process.env.PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return res.status(503).json({ error: 'places_not_configured' });
-  const q = (req.query.q || '').trim();
-  if (!q) return res.status(400).json({ error: 'q required' });
-  try {
-    const ts = await fetch('https://maps.googleapis.com/maps/api/place/textsearch/json?query=' + encodeURIComponent(q) + '&key=' + key).then(r => r.json());
-    const first = ts.results && ts.results[0];
-    if (!first) return res.json({ found: false });
-    const det = await fetch('https://maps.googleapis.com/maps/api/place/details/json?place_id=' + first.place_id + '&fields=name,website,formatted_phone_number,formatted_address,rating,user_ratings_total,url&key=' + key).then(r => r.json());
-    const d = det.result || {};
-    res.json({ found: true, name: d.name || first.name || '', website: d.website || '', phone: d.formatted_phone_number || '',
-      address: d.formatted_address || first.formatted_address || '',
-      rating: (d.rating != null ? d.rating : (first.rating != null ? first.rating : null)),
-      reviews: (d.user_ratings_total != null ? d.user_ratings_total : (first.user_ratings_total != null ? first.user_ratings_total : null)),
-      mapsUrl: d.url || '' });
-  } catch (e) { res.status(502).json({ error: 'places_failed' }); }
+  const q = (req.query.q || '').trim(), phone = (req.query.phone || '').trim(), address = (req.query.address || '').trim();
+  if (!q && !phone && !address) return res.status(400).json({ error: 'q required' });
+  try { res.json(await makePlacesLookup(u => fetch(u).then(r => r.json()), key)(q, { phone, address })); }
+  catch (e) { res.status(502).json({ error: 'places_failed' }); }
 });
 app.post('/api/shops/:id/audit', requireAuth, async (req, res, next) => {
   try {
