@@ -780,7 +780,9 @@ async function stripeCheckout(base, token, name) {
   const key = process.env.STRIPE_SECRET_KEY; if (!key) return null;
   const p = new URLSearchParams();
   p.set('mode', 'payment'); p.set('success_url', base + '/r/' + token + '?session_id={CHECKOUT_SESSION_ID}'); p.set('cancel_url', base + '/r/' + token);
-  p.set('client_reference_id', token); p.set('line_items[0][quantity]', '1');
+  // The Stripe account is shared with seoreview and the Review Tracker: tag every session with this app.
+  p.set('client_reference_id', token); p.set('metadata[app]', 'crmcolumbus'); p.set('metadata[report_token]', token);
+  p.set('payment_intent_data[metadata][app]', 'crmcolumbus'); p.set('line_items[0][quantity]', '1');
   p.set('line_items[0][price_data][currency]', 'usd'); p.set('line_items[0][price_data][unit_amount]', String(REPORT_PRICE_CENTS));
   p.set('line_items[0][price_data][product_data][name]', 'Full SEO & AI Search Report' + (name ? (' — ' + name) : ''));
   try {
@@ -794,7 +796,8 @@ async function stripeCheckout(base, token, name) {
 async function stripePaid(sid, token) {
   const key = process.env.STRIPE_SECRET_KEY; if (!key || !sid || !token) return false;
   try { const r = await fetch('https://api.stripe.com/v1/checkout/sessions/' + encodeURIComponent(sid), { headers: { 'Authorization': 'Bearer ' + key } }); if (!r.ok) return false;
-    const s = await r.json(); return s.payment_status === 'paid' && s.client_reference_id === token; } catch (e) { return false; }
+    const s = await r.json(); const app = (s.metadata || {}).app;
+    return s.payment_status === 'paid' && s.client_reference_id === token && (!app || app === 'crmcolumbus'); } catch (e) { return false; }
 }
 app.post('/api/shared', requireAuth, async (req, res, next) => {
   try {
